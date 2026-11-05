@@ -31,6 +31,10 @@
 すべての \\( (J, \mathbf L) \\)（\\( J = I \\)、\\( \mathbf L = 0 \\) を含む）にわたります。
 以下では、和 \\( \sum\_{I,J,\mathbf L}\sum\_{\alpha\beta} \\) を \\( \sum\_{\mathrm{pairs}} \\) と略すことがあります。
 
+〔規約〕O(N) 解法（`DC`、`Krylov`、`DC-LNO`）では密度行列が対称でなく \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\) なので、
+エネルギーと力の対の和は、\\( (I,J,\mathbf L) \\) と \\( (J,I,-\mathbf L) \\) を別の対として数える**順序対**にわたって取ります
+（片方を Hermite 性で復元して 2 倍にしてはいけません）。詳しくは [O(N) 法](on-methods.md) の「密度行列の非対称性」を参照してください。
+
 ### 密度行列とエネルギー重み付き密度行列〔公開〕
 
 固有ベクトル \\( c^{\sigma}\_{n}(\mathbf k) \\)、固有値 \\( e^{\sigma}\_{n}(\mathbf k) \\)、占有数 \\( f^{\sigma}\_{n}(\mathbf k) \\)、
@@ -46,7 +50,7 @@ $$
 
 とします（TN1 Eq. 4、74。位相 \\( \theta \\) は [疎ブロック形式](../design/sparse-block-format.md) の Bloch 和の規約に従います）。
 共線スピンでない計算では、\\( \rho^{\uparrow} = \rho^{\downarrow} \\) をスピン 1 つ分として持ち、エネルギーでは 2 倍します〔規約〕。
-以下の式は、共線（スピン分極なしを含む）で実数の基底・実数の \\( \rho \\) を前提にします。非共線は〔未確定〕です。
+以下の式は、共線（スピン分極なしを含む）で実数の基底・実数の \\( \rho \\) を前提にします。非共線（スピン 2×2 の密度行列、スピン軌道相互作用）は [非共線・スピン軌道計算のエネルギー・力・応力](noncollinear-energy-force.md) で扱います。
 
 ## 全エネルギーの分割〔公開〕
 
@@ -107,12 +111,12 @@ $$
 | `Unl` | \\( \sum\_\sigma \sum\_{\mathrm{pairs}} \rho^{\sigma} V^{\mathrm{NL}} \\) | 行列のトレース（二中心積分の積） |
 | `Uxc0`、`Uxc1` | \\( E\_{\mathrm{xc}} \\) のスピンごとの部分（下記） | 格子上の和 ＋ 原子密度の補正 |
 | `Ucore` | \\( \frac12\sum\_{I,(J,\mathbf L)\ne(I,0)} Z\_I Z\_J / \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \\) | 原子対の和 |
-| `Uhub` | DFT+U のエネルギー | 〔未確定〕 |
-| `Ucs` | スピンの向きの拘束エネルギー | 〔未確定〕 |
-| `Uzs`、`Uzo` | スピン・軌道磁気モーメントの Zeeman 項 | 〔未確定〕 |
-| `Uef` | 外部電場のエネルギー \\( \Delta V\sum\_p n(\mathbf r\_p) V\_{\mathrm{ef}}(\mathbf r\_p) \\)（電子のみ） | 格子上の和 |
-| `UvdW` | DFT-D2 または D3 の分散エネルギー | 原子対（三体）の和 |
-| `Uch` | 内殻正孔を作るためのペナルティ項 | 〔未確定〕 |
+| `Uhub` | DFT+U のエネルギー | [DFT+U・制約 DFT・磁気的な機能](dftu-magnetism.md)（非共線は [非共線](noncollinear-energy-force.md)） |
+| `Ucs` | スピンの向きの拘束エネルギー | [DFT+U・制約 DFT・磁気的な機能](dftu-magnetism.md) 5 節、[非共線](noncollinear-energy-force.md) 2.4 節 |
+| `Uzs`、`Uzo` | スピン・軌道磁気モーメントの Zeeman 項 | [DFT+U・制約 DFT・磁気的な機能](dftu-magnetism.md) 6 節、[非共線](noncollinear-energy-force.md) 2.4 節 |
+| `Uef` | 外部電場のエネルギー \\( \Delta V\sum\_p n(\mathbf r\_p) V\_{\mathrm{ef}}(\mathbf r\_p) \\)（電子のみ。[ESM・外部電場・内殻準位](esm-field-corehole.md) 3.3 節と同じ定義） | 格子上の和 |
+| `UvdW` | DFT-D2 または D3 の分散エネルギー（二体項のみ。D3 の三体項は実装されていない。[厳密交換・分散力補正](exx-vdw.md)） | 原子対の和 |
+| `Uch` | 内殻正孔を作るためのペナルティ項 | [ESM・外部電場・内殻準位](esm-field-corehole.md) 5.2 節 |
 | `Utot` | 下の和 | |
 | `UpV` | 加えた圧力と体積の積（`MD.applied.pressure`） | |
 | `Enpy` | `Utot` ＋ `UpV`（エンタルピー） | |
@@ -212,9 +216,10 @@ $$
 
 ### その他の項
 
-- 〔公開〕`UvdW`：Grimme の DFT-D2・D3（マニュアル 54 節）。原子位置だけの関数なので、力・応力は解析微分で足します。
-- 〔未確定〕`Uhub`（DFT+U の占有数の定義：on-site、full、dual）、`Ucs`、`Uzs`、`Uzo`、`Uch` の定義と力。
-  これらは対応する機能の章で扱います。
+- 〔公開〕`UvdW`：Grimme の DFT-D2・D3（マニュアル 54 節）。〔規約〕二体項だけで、D3 の三体項（Axilrod–Teller–Muto 型）は実装されていません。原子位置だけの関数なので、力・応力は解析微分で足します（式は [厳密交換・分散力補正](exx-vdw.md) の「力と応力」）。
+- 〔規約〕`Uhub`（DFT+U の占有数の定義：onsite、full、dual）、`Ucs`、`Uzs`、`Uzo` の定義と力は
+  [DFT+U・制約 DFT・磁気的な機能](dftu-magnetism.md)（非共線の場合は [非共線・スピン軌道計算のエネルギー・力・応力](noncollinear-energy-force.md)）、
+  `Uch` は [ESM・外部電場・内殻準位](esm-field-corehole.md) 5 節で定義します。
 - 〔規約〕`Uef` は電子密度と電場ポテンシャルの積の格子和で、原子核（芯電荷）と電場の相互作用は含みません。
 
 ## 整合性の恒等式
@@ -263,7 +268,8 @@ SCF が途中のとき（Hamiltonian を作った密度と、その固有ベク�
 - 構造最適化と `MD.Type NOMD` では、力に総和を 0 にする補正をかけません。
   分子動力学（`NVE`、`NVT_VS`、`NVT_VS2`、`NVT_VS4`、`NVT_NH`、`NVT_Langevin`）では、時間発展の前に、
   固定されていない原子について成分ごとに力の平均を引き、総和を 0 にします。
-  その場合に出力ファイルの力が補正前か補正後かは〔未確定〕です。
+  〔規約〕出力される力は補正前の値です（[構造最適化・分子動力学](geometry-md.md) 10 節）。`.md` には補正前の力が書かれ、
+  `.out` の `<coordinates.forces` ブロックは `NOMD` と構造最適化でだけ書かれ、これらには補正がかからないので、補正後の力が出力に現れることはありません。
 - 力は SCF の最後の密度行列で、全エネルギーの解析微分として評価します。
 
 ### 全体の形〔公開〕
@@ -437,8 +443,13 @@ $$
 〔未確定〕
 
 - 出力ファイル `System.Name.out` に応力・格子ベクトルの勾配がどの書式で書かれるか。
-- 出力される応力に `UpV` の寄与（加えた圧力）が含まれるかどうか（既定では圧力 0 なので影響しない）。
-- 射影子展開を使わない組み合わせの \\( V^{\mathrm{na}} \\)、DFT+U、vdW の応力の詳細。
+- 射影子展開を使わない組み合わせの \\( V^{\mathrm{na}} \\)、共線の DFT+U（dual）の応力の詳細（[DFT+U・制約 DFT・磁気的な機能](dftu-magnetism.md) 11 節）。
+
+〔規約〕解消した項目：
+
+- 加えた圧力 `UpV` が応力に入るのは格子の最適化（`OptC*`、`RFC*`）だけで、デカルトの対角成分に `MD.applied.pressure.flag` を掛けて足します。NPT では `MD.applied.pressure` は使わず `MD.CellPressureControl` を使います（[構造最適化・分子動力学](geometry-md.md) 5.1・6.7 節）。
+- vdW の応力は [厳密交換・分散力補正](exx-vdw.md) の「力と応力」に式があります（二体項と、D3 の配位数を通じた項）。
+- 非共線は応力と併用できません（[非共線](noncollinear-energy-force.md) 4 節）。
 
 ## テスト〔設計〕
 
@@ -498,9 +509,8 @@ $$
 
 ## 〔未確定〕
 
-- 非共線スピン・スピン軌道相互作用でのエネルギー成分と力（\\( \rho \\) の複素数部分の寄与）。
-- `Uhub`、`Ucs`、`Uzs`、`Uzo`、`Uch` の定義と力・応力。
-- 「開いた内殻」の扱いを持つ擬ポテンシャルでの部分内殻補正の力（スピンの片方の \\( v\_{\mathrm{xc}} \\) だけを使う場合がある）。
+- 解消済み：非共線スピン・スピン軌道相互作用のエネルギー成分と力は [非共線](noncollinear-energy-force.md) で、`Uhub`、`Ucs`、`Uzs`、`Uzo` は [DFT+U](dftu-magnetism.md) で、`Uch` は [ESM・内殻準位](esm-field-corehole.md) で扱います。
+- 「開いた内殻」の扱いを持つ擬ポテンシャルでの部分内殻補正の力（スピンの片方の \\( v\_{\mathrm{xc}} \\) だけを使う場合がある）。非共線の場合は [非共線](noncollinear-energy-force.md) 3.4 節。
 - GGA の \\( v\_{\mathrm{xc}} \\) が差分勾配の転置を含む離散的に厳密な微分になっているか。
 - 原子密度の補正で、原子中心の求積に部分内殻補正の密度を含めないことを再実装でも踏襲するか。
 - 中性原子項のうち射影子展開を使わない組み合わせの行列要素の微分。

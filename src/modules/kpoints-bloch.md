@@ -46,10 +46,8 @@ $$
 となります。\\( \hat O \\) は重なり、運動エネルギー、Kohn–Sham Hamiltonian などです。
 \\( \mathbf L \\) は **列側**（ket 側）の原子 \\( J \\) の周期像を指し、符号は \\( +i \\) です。
 
-〔規約〕既存実装は、原子 \\( I \\) とその近接原子 \\( J \\) の周期像 \\( \mathbf n \\)（\\( J \\) の位置が
-\\( \mathbf R\_J + \mathbf L \\)）ごとに、ブロック \\( O\_{IJ}(\mathbf L) \\) に
-\\( \cos(2\pi\\,\mathbf q\cdot\mathbf n) + i\sin(2\pi\\,\mathbf q\cdot\mathbf n) \\) を掛けて \\( O(\mathbf k) \\) の
-\\( (I, J) \\) ブロックに加えます。同じ \\( (I, J) \\) に複数の周期像がある場合は加算されます。
+〔規約〕既存実装の \\( O(\mathbf k) \\) の \\( (I, J) \\) ブロックは、\\( J \\) の周期像（位置 \\( \mathbf R\_J + \mathbf L \\)）に
+わたる \\( e^{2\pi i\\,\mathbf q\cdot\mathbf n}\\, O\_{IJ}(\mathbf L) \\) の和です（複数の周期像は加算されます）。
 つまり上の式どおりで、原子位置は位相に入りません。
 
 ### 性質〔公開〕
@@ -95,7 +93,8 @@ $$
 ## 計算の種類と行列の型〔公開〕〔規約〕
 
 〔公開〕マニュアル（キーワードの節）によれば、`scf.EigenvalueSolver` で解法を選び、
-`Cluster`（孤立系）、`Band`（周期系、k 点サンプリング）、`DC`、`DC-LNO`、`Krylov`（O(N) 法）、`ON2` などがあります。
+`Cluster`（孤立系）、`Band`（周期系、k 点サンプリング）、`DC`、`DC-LNO`、`Krylov`（O(N) 法）、低次スケーリング法などがあります。
+〔規約〕マニュアル 8.2 節は低次スケーリング法の値を `ON2` と書いていますが、既存実装が受け付ける値は `Cluster2` です（[O(N) 法](on-methods.md)）。
 `scf.SpinPolarization` は `Off`（非スピン偏極）、`On`（共線スピン偏極）、`NC`（非共線）を取り、
 `scf.SpinOrbit.Coupling` は非共線計算でのみ使えます。
 
@@ -119,7 +118,8 @@ $$
 - 共線計算の \\( O(\mathbf L) \\) はすべて実数です。非共線計算では、スピン非対角ブロックと、
   スピン軌道相互作用・LDA+U・スピン拘束・Zeeman 項などによる虚部が加わります。
 
-〔未確定〕`NEGF`、`Krylov`、`DC-LNO`、`Cluster-LNO`、`ON2` などの解法の行列の型と扱い。
+〔規約〕O(N) 解法（`DC`、`Krylov`、`DC-LNO`、`Cluster2`）の行列の型と扱いは [O(N) 法](on-methods.md)、`NEGF` の行列（中心領域と電極の k 空間ブロック）は [NEGF による電子輸送](negf.md) で定めます。
+〔未確定〕`Cluster-LNO` の行列の型。
 既存実装には `Recursion`、`Cluster-DIIS`、`Cluster2`、`EGAC` という値も残っていますが、マニュアルの記載とあわせて別途確認が必要です。
 
 ## 非共線スピノルの並び〔規約〕
@@ -204,7 +204,10 @@ $$
 - 既存実装には、原子配置の対称性を使って Monkhorst–Pack 格子を縮約する別の方式（許容誤差のキーワード `scf.MP.criterion`）が残っています。
   マニュアル 4.0 は `GCenter` と `Regular` しか記載しておらず、既存実装でこの方式を選ぶ値もマニュアルにありません。
   共線の `Band` でのみ使え、NEGF と非共線では使えません。このノートでは対象外とします。
-- バンド図（k 点の経路）、状態密度（`Dos.Kgrid`）、光学伝導度（`CDDF.Kgrid`）など、SCF 以外で使う k 点の生成規約。
+- バンド図（k 点の経路）の生成規約（[解析機能](analysis.md) 2 節）。
+
+〔規約〕SCF 以外で使う k 点は [解析機能](analysis.md) で定められています。状態密度（`Dos.Kgrid`）は \\( q\_{i,l} = l/N\_i \\) の Γ 中心の格子で、`scf.Generation.Kpoint` によらず、時間反転などによる削減はしません。
+交換結合定数（jx）は Monkhorst–Pack 型の格子で削減しません。光学伝導度（`CDDF.Kgrid`）は Monkhorst–Pack 型で、\\( \pm\mathbf k \\) を重み 2 の 1 点にまとめます。
 
 ## 実装への要求〔設計〕
 

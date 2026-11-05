@@ -432,10 +432,14 @@ $$
 〔公開〕（導出）非共線の場合も含めて
 
 $$
-E\_{\mathrm{NL}} = \sum\_{\mathbf L} \sum\_{ab} \sum\_{\sigma\sigma'} \rho^{\sigma'\sigma}\_{ba}(-\mathbf L)\\, V^{\mathrm{NL},\sigma\sigma'}\_{ab}(\mathbf L)
+E\_{\mathrm{NL}} = \sum\_{\mathbf L} \sum\_{ab} \sum\_{\sigma\sigma'} \rho^{\sigma\sigma'}\_{ab}(\mathbf L)\\, V^{\mathrm{NL},\sigma\sigma'}\_{ab}(\mathbf L)
 $$
 
-と書きます（密度行列の添字の約束は [H(R)・S(R) 疎ブロック形式](../design/sparse-block-format.md) に従う）。
+と書きます。複素共役は付けない積の和で、実部と虚部に分けると \\( \mathrm{Re}\\,\rho\\,\mathrm{Re}\\,V - \mathrm{Im}\\,\rho\\,\mathrm{Im}\\,V \\)、
+スピン非対角 \\( \uparrow\downarrow \\) には係数 2 が付きます
+（[非共線・スピン軌道計算のエネルギー・力・応力](noncollinear-energy-force.md) 1.4 節の縮約の規則。バンドエネルギーとの一致を数値で確認済みで、既存実装もこの縮約を使います〔規約〕）。
+\\( \rho \\) の定義と位相の約束は [k 点と Bloch 和](kpoints-bloch.md)・[密度行列と電荷ミキシング](density-mixing.md) と [H(R)・S(R) 疎ブロック形式](../design/sparse-block-format.md) に従います。
+（以前の版の \\( \rho^{\sigma'\sigma}\_{ba}(-\mathbf L) \\) との縮約は、これらの章の \\( \rho \\) の規約と虚部どうしの積の符号が合わないため、上の形に改めました。）
 3.4 節の減衰関数を含めて \\( V\_{ab} = f(d\_{IJ})\\, h\_{ab} \\)（\\( h \\) は減衰前の和）とすると、原子 \\( X \\) の位置による微分は
 
 $$

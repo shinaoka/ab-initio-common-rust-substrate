@@ -27,7 +27,7 @@ $$
 | 項目 | 叩き台 |
 |---|---|
 | 原子対の範囲 | \\( \lVert \mathbf R\_J + \mathbf L - \mathbf R\_I \rVert \le r\_{c,I} + r\_{c,J} \\) を満たすすべての組（自分自身を含む。既存実装と同じく境界を含む。境界上の対の値は 0） |
-| 対の重複 | \\( (J, I, -\mathbf L) \\) も保持する（Hermite 性で復元できるが、利用側の簡単さを優先） |
+| 対の重複 | \\( (J, I, -\mathbf L) \\) も保持する（Hermite 性で復元できるが、利用側の簡単さを優先）。ただし O(N) 解法（`DC`、`Krylov`、`DC-LNO`）の密度行列は上の意味で Hermite でなく \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\) なので、復元はできず**両方の向きを必ず保持する**（[O(N) 法](../modules/on-methods.md)） |
 | 格子ベクトルの表現 | 整数の 3 つ組 \\( (n\_1, n\_2, n\_3) \\) |
 | ブロック内の並び | 行は \\( I \\) の軌道、列は \\( J \\) の軌道。軌道の並びは [PAO 基底](../modules/pao-basis.md) の規約 |
 | メモリー配置 | 未定（列優先を第一候補。faer・tenferro との受け渡しを考慮） |
