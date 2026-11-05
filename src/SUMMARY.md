@@ -26,6 +26,7 @@
 - [非局所擬ポテンシャル](modules/nonlocal-pseudopotential.md)
 - [中性原子ポテンシャルと射影子展開](modules/neutral-atom.md)
 - [実空間グリッド・Poisson・交換相関](modules/grid-poisson-xc.md)
+- [k 点と Bloch 和](modules/kpoints-bloch.md)
 - [一般化固有値問題と S の正則化](modules/generalized-eigen.md)
 - [密度行列と電荷ミキシング](modules/density-mixing.md)
 - [全エネルギーと力](modules/energy-force.md)

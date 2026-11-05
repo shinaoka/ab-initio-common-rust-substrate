@@ -29,8 +29,17 @@ def escape(tex: str) -> str:
     return tex
 
 
+LEADING = re.compile(r"^(\s*)([-+=#>]|\d+\.)", re.M)
+
+
+def escape_display(tex: str) -> str:
+    # A display line starting with '-', '+', '=', '#', '>' or '1.' would be parsed
+    # by Markdown as a list item / heading / quote; prefix an empty TeX group.
+    return LEADING.sub(r"\1{}\2", escape(tex))
+
+
 def process(text: str) -> str:
-    text = DISPLAY.sub(lambda m: m.group(1) + escape(m.group(2)) + m.group(3), text)
+    text = DISPLAY.sub(lambda m: m.group(1) + escape_display(m.group(2)) + m.group(3), text)
     text = INLINE.sub(lambda m: "\\\\(" + escape(m.group(1)) + "\\\\)", text)
     return text
 
