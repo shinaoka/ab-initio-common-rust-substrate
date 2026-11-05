@@ -1,0 +1,14 @@
+[book]
+title = "OpenMX 実装ノート"
+authors = ["Hiroshi Shinaoka and contributors"]
+language = "ja"
+src = "src"
+
+[output.html]
+mathjax-support = true
+git-repository-url = "https://github.com/shinaoka/openmx-implementation-note"
+edit-url-template = "https://github.com/shinaoka/openmx-implementation-note/edit/main/{path}"
+
+[output.html.fold]
+enable = true
+level = 1
