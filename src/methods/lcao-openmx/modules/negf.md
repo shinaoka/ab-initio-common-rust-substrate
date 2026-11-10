@@ -552,8 +552,6 @@ In the noncollinear case they are defined for each 2×2 spin component (Eq. 63�
 
 - The energy integration uses the same grid and imaginary part as the current in Section 9.2. It is not computed when \\( \lvert\mu\_{\mathrm L} - \mu\_{\mathrm R}\rvert < 10^{-6} \\) Hartree.
 - \\( S^{-1} \\) is the pseudo-inverse from the eigendecomposition of \\( S\_{\mathrm C} \\), removing directions with eigenvalues below \\( 10^{-6} \\).
-- `Left(ideal)`/`Right(ideal)` in standard output are surface integrals of the Landauer–Büttiker boundary current, and `Left(truncated)`/`Right(truncated)` are
-  the integrals of the grid current density over the boundary planes. Their difference indicates the error due to the discretization of the current density and the basis truncation.
 - Averages over the Voronoi polyhedron of each atom are written to the `_atom` files.
 
 The detailed discretization (evaluation of gradients, implementation of the Neumann conditions) is not described in this version ([Open]).
@@ -715,7 +713,12 @@ Since results may change slightly with the degree of parallelism, the number of 
   This appears inconsistent with the formula of Section 5.1. Whether it is intentional (combined with a factor elsewhere) or a bug needs to be checked by running it.
 - The meaning and computation of forces, stress, and total energy in NEGF (the energy-weighted density matrix is not computed; the appendix of technical note 13 gives formulas for the nonequilibrium energy density matrix).
 - Details of the NEGF-specific charge mixing (RMM-DIIS and Kerker in the representation of bc-plane Fourier components and a-direction grid planes).
-- Implementation details of the discretization of the current density (gradients, the Poisson equation for the nonlocal term and its Neumann boundary conditions), and the precise definitions of `ideal`/`truncated`.
+- Implementation details of the discretization of the current density (gradients, the Poisson equation for the nonlocal term and its Neumann boundary conditions).
+- Boundary-current diagnostics in standard output. The manual's output example shows `Left(ideal)`/`Right(ideal)` and `Left(truncated)`/`Right(truncated)`,
+  which would be surface integrals of the Landauer–Büttiker boundary current and integrals of the grid current density over the boundary planes,
+  their difference indicating the error due to the discretization of the current density and the basis truncation. The implementation consulted
+  (GPU version, commit 3871b1f) does not print these labels (only plain left/right values), so which quantities it prints, and whether the upstream
+  CPU version prints the labelled ones, must be confirmed by running both.
 - The meaning of the `FDG` scheme, the two-valued `NEGF.gate.voltage`, and `NEGF.FFTE.Num.Buffer.Cells`.
 - Error estimate of the FD boundary condition when \\( N\_1 \\) of C and the a-direction grid spacing of the leads do not match.
 - Details of the file formats of current and conductance in noncollinear NEGF (treatment of spin columns), and the conventions for the output of `NEGF.OffDiagonalCurrent`.
