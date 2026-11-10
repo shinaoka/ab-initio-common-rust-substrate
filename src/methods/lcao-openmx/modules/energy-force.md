@@ -49,7 +49,7 @@ $$
 $$
 
 (TN1 Eq. 4, 74. The phase \\( \theta \\) follows the Bloch-sum convention of the [sparse block format](../design/sparse-block-format.md).)
-In calculations without collinear spin polarization, \\( \rho^{\uparrow} = \rho^{\downarrow} \\) is stored for one spin only and doubled in the energy [Convention].
+In spin-unpolarized calculations, \\( \rho^{\uparrow} = \rho^{\downarrow} \\) is stored for one spin only and doubled in the energy [Convention].
 The equations below assume the collinear case (including spin-unpolarized), a real basis and real \\( \rho \\). The noncollinear case (spin 2×2 density matrix, spin-orbit coupling) is treated in [Energy, forces and stress for noncollinear and spin-orbit calculations](noncollinear-energy-force.md).
 
 ## Decomposition of the total energy [Public]

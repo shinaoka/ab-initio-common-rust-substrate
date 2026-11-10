@@ -446,8 +446,8 @@ The mixing fraction is \\( w \\) at large \\( G \\), \\( 0.2\\, w \\) as \\( G \
   and thereafter one entry is added per iteration up to `scf.Mixing.History` (\\( h \\)).
   (For \\( P \le 6 \\) the count decreases at the second iteration, so in a reimplementation it suffices to start from 2 entries and increase regardless of \\( P \\).)
 
-[Public] Manual Sec. 16.1 states that `scf.Mixing.EveryPulay` affects RMM-DIISK, RMM-DIISV and RMM-DIISH, but
-in the existing implementation it affects only RMM-DIISK and RMM-DIISV (RMM-DIISH does Pulay mixing at every iteration in the Pulay stage).
+[Public] Manual Sec. 16.1 states that `scf.Mixing.EveryPulay` affects RMM-DIISK, RMM-DIISV and RMM-DIISH.
+[Convention] In the existing implementation it affects only RMM-DIISK and RMM-DIISV (RMM-DIISH does Pulay mixing at every iteration in the Pulay stage).
 
 ### RMM-DIISV [Convention]
 

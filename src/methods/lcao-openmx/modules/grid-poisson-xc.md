@@ -314,7 +314,7 @@ $$
 
 ### 4.5 GGA gradients: 27-point polynomial fit [Public] [Convention]
 
-[Public] Section 11 of the manual: the density gradient is obtained by a real-space polynomial fit to the 27 neighboring grid points including the center.
+[Public] Section 11 of the manual: GGA density gradients are evaluated in real space by fitting a polynomial through a grid point and its 26 surrounding points (27 points in all).
 
 [Convention] Specifically:
 
@@ -441,7 +441,7 @@ the fact that the integration region moves together with atom \\( k \\)).
 Stress: \\( E\_{\delta\mathrm H} \\) is differentiated with respect to lattice strain via the \\( \mathbf G \\)-space formula of Section 3.2, and \\( E\_{\mathrm{xc}} \\) via the displacement of grid points, the change of \\( \Delta V \\), and the GGA gradient terms.
 Details are deferred to technical note 23 and [Total energy and forces](energy-force.md) ([Open]).
 
-## 7. Tests
+## 7. Tests [Design]
 
 `tools/check_grid_poisson_xc.py` contains reference implementations of the analytic items below.
 

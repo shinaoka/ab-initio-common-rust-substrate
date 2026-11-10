@@ -584,7 +584,7 @@ The procedure is the same as in the collinear case.
   `NEGF.Dos.energy.div` (default 200), and `NEGF.Dos.Kgrid` (default `1 1`), and written to
   `System.Name.Dos.val` and `System.Name.Dos.vec`. The energy origin is \\( \mu\_{\mathrm L} \\).
 - **Parallelization** (manual Section 46.8): combinations of energy points, k-points, and spins are distributed with MPI, and matrix operations are parallelized with OpenMP. This does not affect the results.
-- **Incompatible features** [Convention]: cannot be used together with basis optimization (`orbitalOpt`); the program stops.
+- **Incompatible features** [Convention]: cannot be used together with basis optimization (`orbitalOpt.Method`); the program stops.
 
 ## 14. Output files [Public] [Convention]
 
@@ -599,7 +599,7 @@ The procedure is the same as in the collinear case.
 | `System.Name.traneval#k_#E_#s`, `tranevec#k_#E_#s` | Transmission eigenvalues, LCAO coefficients of the eigenchannels | Manual 46.4.3 |
 | `System.Name.tranec#k_#E_#s_#c_r.cube`/`_i.cube` | Real and imaginary parts of the eigenchannels (Gaussian cube) | Manual 46.4.3 |
 | `System.Name.curden.xsf`, `scurden.xsf` | Charge and spin current densities (vector fields on the grid) | Manual 46.4.2 |
-| `System.Name.curden1.cube`, `scurden1.cube` | Same, a component | Manual 46.4.2 |
+| `System.Name.curden1.cube`, `scurden1.cube` | Same, component along a | Manual 46.4.2 |
 | `System.Name.curden_atom.xsf`, `scurden_atom.xsf` | Same, averaged over the Voronoi polyhedra of the atoms | Manual 46.4.2 |
 | `System.Name.odcurden*_r`/`_i` | Noncollinear spin off-diagonal components (real and imaginary parts) | Manual 46.4.2 |
 

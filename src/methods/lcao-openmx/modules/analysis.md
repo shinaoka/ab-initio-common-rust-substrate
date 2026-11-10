@@ -645,7 +645,7 @@ The momentum matrix elements are built either from the LCAO \\( \langle\phi\rver
 | `CDDF.frequency.grid.total_number` | 10000 | \\( N \\) |
 | `CDDF.approach` | 0 | 0: \\( \langle\phi\rvert\nabla\lvert\phi'\rangle \\) (collinear only), 1: the \\( [H,\mathbf r] \\) form (collinear and noncollinear) |
 | `CDDF.shift_ChemP` | 0.0 eV | Shift \\( \mu \\) |
-| `CDDF.Kgrid` | value of `scf.Kgrid` | Must be `1 1 1` if and only when `scf.Kgrid` is `1 1 1` |
+| `CDDF.Kgrid` | value of `scf.Kgrid` | Must be `1 1 1` if and only if `scf.Kgrid` is `1 1 1` |
 
 - Frequencies are \\( \omega\_j = j\\,\Delta \\) (\\( j \ge 1 \\)); the value at \\( \omega = 0 \\) is the linear extrapolation \\( 2y\_1 - y\_2 \\) from \\( j = 1, 2 \\).
 - k-points are Monkhorst–Pack type \\( -\tfrac12 + (2l+1)/(2N) \\) (0 if \\( N = 1 \\)), and \\( \pm\mathbf k \\) are merged into one point with weight 2.

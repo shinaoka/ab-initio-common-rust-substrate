@@ -215,7 +215,7 @@ these derivatives are evaluated analytically in force calculations.
   Therefore, when comparing derivatives with the existing implementation, either avoid structures containing atom pairs parallel to the \\( z \\) axis, or allow for this difference.
   [Open] How much this difference shows up in the forces of the existing implementation (it is often canceled by symmetry) is checked by finite differences
   in the [energy and forces](energy-force.md) chapter.
-- Matrix elements of the orbital angular momentum operator are also computed in the same routine, but they are outside the scope of this note.
+- Matrix elements of the orbital angular momentum operator are also computed alongside these, but they are outside the scope of this note.
 
 ## Tests
 

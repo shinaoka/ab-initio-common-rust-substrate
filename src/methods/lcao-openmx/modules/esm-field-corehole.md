@@ -192,7 +192,7 @@ $$
    This removes the discontinuity that the trigonometric interpolation creates at the edge where the cell touches its periodic image along the normal.
    Since the region near the edge is vacuum (Sec. 2.7), the effect on the energy should be small ([Open]: the magnitude of the effect has not been measured).
 
-[Design] When there is no density at the edges (a buffer region as in Sec. 2.7 exists), the analytic interval integration of item 2 agrees with the method
+[Design] When there is no density at the edges (a buffer region as in Sec. 2.7 exists), the analytic interval integration of the "Integration" item above agrees with the method
 "add a homogeneous solution \\( A e^{G\_\parallel z} + B e^{-G\_\parallel z} \\) (\\( A + Bz \\) for \\( G\_\parallel=0 \\)) to the periodic solution \\( V\_{\mathrm{per}} \\)
 and determine \\( A, B \\) from the boundary conditions at the edges". The boundary conditions are
 
@@ -220,7 +220,7 @@ For the \\( n\_0 \\) term the particular solution \\( -2\pi n\_0 z^2 \\) is used
 ### 2.6 Wall for MD (`ESM.wall.*`) [Public] [Convention]
 
 [Public] Manual Sec. 49.1: in MD of solid-liquid interfaces, a wall potential is placed to keep atoms from approaching the upper medium.
-`ESM.wall.position` is the distance (Å) from the upper edge of the cell to the origin of the wall, and `ESM.wall.height` is the potential at the point 1.0 Å inside from the wall origin (eV, default 100.0).
+`ESM.wall.position` (Å) places the wall origin, given as its inward offset from the plane bounding the cell on the upper side, and `ESM.wall.height` is the potential at the point 1.0 Å inside from the wall origin (eV, default 100.0).
 
 [Convention]
 
@@ -503,7 +503,7 @@ With ESM, N-1s of 2D NBe₂ converges at a vacuum length of 10 Å (Table 14 of m
 
 - **Pluggable Poisson solver**: abstract the Poisson equation as a function "\\( \delta n \\) (on the grid) → \\( \delta V\_H \\) (on the grid)",
   so that periodic boundaries, spherical cutoff, ESM (`on1`–`on4`), and difference mode (Sec. 5.3) can be selected as implementations of the same type.
-  The ESM implementation takes the 1D Green's function (Sec. 2.3) as an argument, and edge smoothing (item 4 of Sec. 2.4) is separated as an option for comparison with the existing implementation.
+  The ESM implementation takes the 1D Green's function (Sec. 2.3) as an argument, and edge smoothing (the "Edge smoothing" item of Sec. 2.4) is separated as an option for comparison with the existing implementation.
 - **Registration of external potentials**: external terms such as the uniform field, the potential difference of ESM `on4`, and the wall are registered as modules returning three things: "contribution to the grid potential", "contribution to the energy", and "forces on atoms",
   with switching between compatibility mode and a physically consistent mode (Sec. 3.4, `on4` in Sec. 2.5, the wall energy in Sec. 2.6).
 - **Penalty term**: the core-hole \\( H^{\mathrm{CH}} \\) has the same three-center structure as the nonlocal pseudopotential ("projector = function on some atom"), so
@@ -512,7 +512,7 @@ With ESM, N-1s of 2D NBe₂ converges at a vacuum length of 10 Å (Table 14 of m
 - **Virtual atoms**: keep species data (\\( Z\_I \\), \\( V^{\mathrm{loc}} \\), \\( n^{a} \\)) as reals, and do not create processing that depends on integer atomic numbers.
 - **Restart files**: for the initial-state density used in difference mode, check that the grid (number of divisions, origin) matches.
 
-## 7. Tests
+## 7. Tests [Design]
 
 `tools/check_esm_field_corehole.py` contains reference implementations of the analytic items below.
 
@@ -533,7 +533,7 @@ With ESM, N-1s of 2D NBe₂ converges at a vacuum length of 10 Å (Table 14 of m
 
 ## [Open]
 
-- The magnitude of the effect of ESM edge smoothing (item 4 of Sec. 2.4) on energies and forces, and whether to make it the default in a reimplementation.
+- The magnitude of the effect of ESM edge smoothing (the "Edge smoothing" item of Sec. 2.4) on energies and forces, and whether to make it the default in a reimplementation.
 - The physical meaning of the energy definition for `on4` (`UH1` contains \\( \tfrac12\int\delta n\\,V\_{\mathrm{bias}} \\)), and the treatment of the correct free energy (the work term charge × potential) under constant electrode potential.
 - The treatment of the uniform field in non-orthogonal cells (the formula of Sec. 3.2 is not a uniform field except for orthogonal cells). Confirmation of the intent of the existing implementation (treating the input components as along the lattice vectors).
 - The meaning of combining the uniform field with ESM, and the field with charged systems.

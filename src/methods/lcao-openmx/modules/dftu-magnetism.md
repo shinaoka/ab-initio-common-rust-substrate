@@ -493,7 +493,7 @@ to a noncollinear calculation with `scf.restart c2n` and diagonalize once includ
 - **Output**: allow output equivalent to `System.Name.DM_onsite` (occupation matrices per atom and spin with their eigenvalues and eigenvectors) and the decomposition of orbital moments.
 - **Switches for comparison with the existing implementation**: make the position of the fractional part in the enhancement of orbital polarization, the transposition in the noncollinear case, and the handling of `ex` reproducible only in comparison mode.
 
-## Tests
+## Tests [Design]
 
 ### Analytic checks and invariants (confirmed with `tools/check_dftu_magnetism.py`)
 

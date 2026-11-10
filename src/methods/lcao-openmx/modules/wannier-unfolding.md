@@ -441,7 +441,7 @@ and the group number of each atom with `<Unfolding.Map` (any positive integers; 
   If the fractional coordinates of some atom (or its periodic image) relative to the reference cell are within \\( \tfrac12(0.1,0.1,0.1)\cdot\mathbf b\_i^{\mathrm{ref}}/2\pi \\) of integers in all 3 components, the origin is shifted by −0.1 bohr once more.
   When the origin is given explicitly, no shift is applied.
 - It is an error if different periodic images of the same atom fall into the same reference cell (e.g., when the reference cell is larger than the supercell in some direction).
-- Note: manual 55.3 explains that the origin is determined automatically so that "atoms of the same group fall, as far as possible, one into each reference cell" and "the number of reference cells containing atoms is minimal", but
+- Note: manual 55.3 explains that the origin is determined automatically so that atoms of the same group fall, as far as possible, one into each reference cell, and so that the number of reference cells containing atoms is minimal, but
   the implementation in the version checked uses the fixed rule above. For surfaces and strongly distorted systems, giving the origin explicitly is recommended.
 
 ### 3.3 k points, energies, and output [Public] [Convention]

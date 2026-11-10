@@ -95,7 +95,7 @@ A rule determines the assignment to each level according to the number of ranks.
 - The abstraction layer has a single-rank implementation (no communication). This lets non-parallel tests go through the same code.
 - Dense matrix operations use faer and tenferro. For the distributed eigensolver, an external library is placed behind this layer.
 
-## Tests
+## Tests [Design]
 
 The approach of the [test hierarchy](../../../testing/strategy.md) is followed.
 

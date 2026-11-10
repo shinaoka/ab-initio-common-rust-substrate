@@ -155,7 +155,7 @@ The number of eigenpairs \\( n\_{\mathrm{ev}} \\) computed at each SCF iteration
 - **Consideration for later stages**: when the occupation of the \\( n\_{\mathrm{ev}} \\)-th level is not negligible (e.g. \\( f(\varepsilon\_{n\_{\mathrm{ev}}}) > 10^{-12} \\)),
   or when the \\( n\_{\mathrm{ev}} \\) boundary falls in the middle of degenerate levels, it must be possible to issue a warning or to increase \\( n\_{\mathrm{ev}} \\) and solve again.
 
-## Tests
+## Tests [Design]
 
 Residual and orthogonality are judged by the following quantities.
 

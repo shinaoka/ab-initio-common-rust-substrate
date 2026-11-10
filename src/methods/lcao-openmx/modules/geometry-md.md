@@ -47,7 +47,7 @@ SCF → forces → coordinate update.
 
 1. Converge the SCF at the current coordinates (and lattice), and obtain `Utot`, forces, and, if needed, the stress.
 2. Append one block with the current coordinates and forces (and the velocities held at that point) to the `.md` file (section 10).
-3. In molecular dynamics, apply the correction that makes the sum of forces zero (below).
+3. In molecular dynamics, remove the net force (below).
 4. Update coordinates, lattice, and velocities according to `MD.Type`, and append one line to the `.ene` file.
 5. Only in molecular dynamics (`NVE`, `NVT_*`, `NPT_*`), move atoms that have left the unit cell back inside (section 7). Not done in geometry optimization.
 6. Write the restart input file `System.Name.dat#` from the current state (section 10).

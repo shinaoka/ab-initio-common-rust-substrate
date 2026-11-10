@@ -155,7 +155,7 @@ For how the components are stored, see [density matrix and charge mixing](densit
 
 [Public] According to manual 4.0 (Chapter 15), `scf.Kgrid` specifies the numbers of divisions \\( (N\_1, N\_2, N\_3) \\) along the reciprocal lattice vectors,
 and `scf.Generation.Kpoint` specifies the generation method. The choices are `GCenter` (default) and `Regular`.
-`GCenter` includes the Γ point regardless of the parity of the numbers of divisions, treats \\( \mathbf k \\) and \\( -\mathbf k \\) on an equal footing,
+For both even and odd numbers of divisions, the `GCenter` mesh contains Γ; it treats \\( \mathbf k \\) and \\( -\mathbf k \\) on an equal footing,
 and includes the time-reversal-invariant momenta (TRIM) satisfying \\( \mathbf k \equiv -\mathbf k \pmod{\mathbf G} \\).
 
 [Convention] The default when `scf.Kgrid` is omitted is `4 4 4` (the manual states that it is required for Band).
@@ -178,7 +178,7 @@ For each direction \\( i \\) and index \\( l = 0, \dots, N\_i - 1 \\), the fract
   the Γ-centered grid folded into \\( (-\tfrac12, \tfrac12] \\).
   This gives the same set of eigenvalues as a Γ-point calculation of the \\( N\_1\times N\_2\times N\_3 \\) supercell (see Tests).
 - [Convention] The existing implementation adds \\( +\delta \\), \\( -\delta \\), \\( +2\delta \\) (\\( \delta = 10^{-12} \\)), in the order of directions 1, 2, 3,
-  to the fractional coordinates of directions with 2 or more divisions. This is a tiny shift for stabilizing the eigenvalue routine
+  to the fractional coordinates of directions with 2 or more divisions. The shift is far below any physically relevant scale
   and need not be reproduced in the reimplementation ([bitwise agreement is not required](../../../process/writing-rules.md)).
 
 ### Reduction of k points and weights [Convention]
@@ -220,7 +220,7 @@ Exchange coupling constants (jx) use a Monkhorst–Pack-type grid without reduct
   whether to apply time-reversal reduction as arguments. Reduction is allowed only for collinear calculations.
 - For comparison with the existing implementation, whether to add the tiny shift \\( \delta \\) may be an option (default: not added).
 
-## Tests
+## Tests [Design]
 
 `tools/check_kpoints_eigen.py` checks many of the following on a small model with random real \\( H(\mathbf L) \\), \\( S(\mathbf L) \\)
 (\\( O(-\mathbf L) = O(\mathbf L)^{\mathsf T} \\)).

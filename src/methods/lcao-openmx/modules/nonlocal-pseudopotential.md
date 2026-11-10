@@ -1,6 +1,6 @@
 # Nonlocal pseudopotential
 
-> Status: draft (awaiting review). The separable-form equations were re-derived in the notation of this note from the original papers and technical note 2.
+> Status: prototype (awaiting review). The separable-form equations were re-derived in the notation of this note from the original papers and technical note 2.
 > The spin-orbit matrix elements and the j-averaging rule were confirmed as behavior of the existing implementation and checked with `tools/check_nonlocal.py`.
 
 ## Overview [Public]
