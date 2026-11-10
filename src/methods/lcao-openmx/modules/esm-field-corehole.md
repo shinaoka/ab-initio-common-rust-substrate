@@ -22,7 +22,7 @@ NEGF の電極境界条件は範囲外です。
 
 ## 記号〔設計〕
 
-[記法](../design/notation.md)、[グリッド](grid-poisson-xc.md)、[全エネルギーと力](energy-force.md) の記号に加えて次を使います。
+[記法](../../../conventions/notation.md)、[グリッド](grid-poisson-xc.md)、[全エネルギーと力](energy-force.md) の記号に加えて次を使います。
 
 | 記号 | 意味 |
 |---|---|

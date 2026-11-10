@@ -97,7 +97,7 @@ T. V. T. Duy and T. Ozaki, Comput. Phys. Commun. 185, 153 (2014)（arXiv:1302.61
 
 ## テスト
 
-[テストの階層](../testing/strategy.md) の考え方に従います。
+[テストの階層](../../../testing/strategy.md) の考え方に従います。
 
 | 検査 | 内容 | 許容誤差 |
 |---|---|---|

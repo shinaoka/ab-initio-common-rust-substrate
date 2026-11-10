@@ -6,7 +6,7 @@
 
 ## 記号〔設計〕
 
-[記法](../design/notation.md) と [全エネルギーと力](energy-force.md) の記号に加えて、次を使います。
+[記法](../../../conventions/notation.md) と [全エネルギーと力](energy-force.md) の記号に加えて、次を使います。
 
 | 記号 | 意味 |
 |---|---|
@@ -101,7 +101,7 @@ $$
 \tilde V^{\mathrm{na}}\_I(k) = \int\_0^{\infty} dr\\, r^2 j\_0(kr)\\, V^{\mathrm{na}}\_I(r)
 $$
 
-を使います（[記法](../design/notation.md) の規約）。既存実装は、実空間の積分を \\( r\_{c,I} + 0.5 \\) bohr で打ち切り、
+を使います（[記法](../../../conventions/notation.md) の規約）。既存実装は、実空間の積分を \\( r\_{c,I} + 0.5 \\) bohr で打ち切り、
 波数は \\( 10^{-6} \le k \le k\_{\max} \\)（\\( k\_{\max} = \sqrt{E} \\)、\\( E \\) は `1DFFT.EnergyCutoff`、既定 3600 Ry で 60 bohr⁻¹）の
 区間の Gauss–Legendre 300 点の上で表にします。波数の積分も同じ 300 点で行います。
 [二中心積分](two-center-overlap-kinetic.md) の重なり・運動エネルギーの等間隔格子とは別の格子です。

@@ -6,7 +6,7 @@
 
 ## 記号〔設計〕
 
-[記法](../design/notation.md) と [疎ブロック形式](../design/sparse-block-format.md) の記号に加えて、次を使います。
+[記法](../../../conventions/notation.md) と [疎ブロック形式](../design/sparse-block-format.md) の記号に加えて、次を使います。
 
 | 記号 | 意味 |
 |---|---|

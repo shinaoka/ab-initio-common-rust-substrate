@@ -195,7 +195,7 @@ $$
 $$
 
 とします（Hartree 原子単位、\\( \delta V\_H \\) は電子 1 個が感じるポテンシャルエネルギーで、電子密度を正に取る規約）。
-\\( \delta\tilde n \\) は離散 Fourier 係数で、このノートの連続 Fourier 変換 \\( \tilde f \\)（[記法](../design/notation.md)）とは
+\\( \delta\tilde n \\) は離散 Fourier 係数で、このノートの連続 Fourier 変換 \\( \tilde f \\)（[記法](../../../conventions/notation.md)）とは
 \\( \delta\tilde n(\mathbf G) \approx \tilde{\delta n}(\mathbf G)/\Omega \\) の関係です。
 原点 \\( \mathbf O \\) による位相 \\( e^{-i\mathbf G\cdot\mathbf O} \\) は順変換と逆変換で打ち消すので、指数の \\( \mathbf r\_{\mathbf n} \\) は \\( \sum\_i n\_i\mathbf h\_i \\) に置き換えて構いません。
 

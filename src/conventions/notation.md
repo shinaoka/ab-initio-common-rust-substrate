@@ -17,7 +17,7 @@
 | \\( \alpha = (l, \zeta, m) \\) | 原子上の軌道。\\( l \\) は角運動量、\\( \zeta \\) は多重度（0 始まり）、\\( m \\) は磁気量子数 |
 | \\( R\_{l\zeta}(r) \\) | 動径関数 |
 | \\( Y\_{lm} \\) | 複素球面調和関数（Condon–Shortley 位相） |
-| \\( S\_{lm} \\) | 実球面調和関数（並びは [PAO 基底](../modules/pao-basis.md)） |
+| \\( S\_{lm} \\) | 実球面調和関数（並びは [PAO 基底](../methods/lcao-openmx/modules/pao-basis.md)） |
 | \\( r\_c \\) | PAO のカットオフ半径 |
 | \\( \boldsymbol\tau \\) | 二中心積分における原子間ベクトル |
 

@@ -17,7 +17,7 @@
 
 ## 記号〔設計〕
 
-[記法](../design/notation.md) の記号に加えて、次を使います。内部単位は原子単位（bohr、Hartree、電子質量 \\( m\_e \\)、
+[記法](../../../conventions/notation.md) の記号に加えて、次を使います。内部単位は原子単位（bohr、Hartree、電子質量 \\( m\_e \\)、
 時間の単位 \\( \hbar/E\_h \\)）です。
 
 | 記号 | 意味 |

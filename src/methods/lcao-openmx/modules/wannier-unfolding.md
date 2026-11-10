@@ -23,7 +23,7 @@ SCF そのもの、バンド分散の出力形式（`Band.dispersion`）、cube 
 
 ## 記法〔設計〕
 
-[記法・単位・用語](../design/notation.md) と [k 点と Bloch 和](kpoints-bloch.md) の記法を使います。追加分は次のとおりです。
+[記法・単位・用語](../../../conventions/notation.md) と [k 点と Bloch 和](kpoints-bloch.md) の記法を使います。追加分は次のとおりです。
 
 | 記号 | 意味 |
 |---|---|
