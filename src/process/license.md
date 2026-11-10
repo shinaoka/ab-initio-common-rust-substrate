@@ -19,11 +19,11 @@ adapt code from GPL or proprietary reference codes; see [Clean-room procedure](c
 |---|---|---|---|
 | OpenMX (code) | GPL-3.0 | Clean-room reference for the LCAO family; fixtures | See "OpenMX" below |
 | OpenMX PAO/VPS databases | GPL (distributed with OpenMX) | Basis sets and pseudopotentials for the LCAO family | May be incorporated with a statement of origin; see below |
-| OpenMX GPU version (H. Kawai) | GPL-3.0 | Reference for [Convention] facts and fixtures; GPU techniques specified as algorithms | Conventions checked against commit 3871b1f; see [GPU strategy](../methods/lcao-openmx/design/gpu-strategy.md) for what may flow into the implementation |
-| cuSOLVER call sequence in OpenMX 4.0 | NVIDIA proprietary notice | Not used | Re-specify from public cuSOLVER documentation |
+| OpenMX GPU version (H. Kawai) | GPL-3.0 | Reference for [Convention] facts and fixtures; GPU techniques specified as algorithms | Conventions checked against commit 3871b1f (the GPU chapters, against 08d0521); see [GPU strategy](../methods/lcao-openmx/design/gpu-strategy.md) for what may flow into the implementation |
+| cuSOLVER call sequence in OpenMX 4.0 (also in the GPU version) | NVIDIA proprietary notice | Not used | Re-specify from public cuSOLVER documentation |
 | FFTW | GPL-2.0+ | Not linked | Use permissive FFTs (rustfft, cuFFT, rocFFT) |
 | ELPA | LGPL-3.0 | Distributed eigensolver via FFI | Link dynamically |
-| MAGMA, COSMA, GEMMul8 | BSD-3 / BSD-3 / MIT | GPU eigensolvers, distributed GEMM, emulated FP64 GEMM via FFI | GEMMul8 license file to be confirmed |
+| MAGMA, COSMA, GEMMul8 | BSD-3 / BSD-3 / MIT | GPU eigensolvers, distributed GEMM, emulated FP64 GEMM via FFI | Permissive; GEMMul8 LICENSE (MIT, RIKEN R-CCS) checked; keep notices if code is reused |
 | Quantum ESPRESSO, ABINIT, GPAW, Elk, exciting | GPL | Clean-room references; fixture generation | Code must not be copied; libPAW (in ABINIT) is treated as GPL |
 | WIEN2k, VASP | Proprietary | Published results only | — |
 | SIRIUS | BSD-3-Clause | Algorithm reference for PAW and FP-LAPW; possible verification oracle | Permissive; keep notices if code is reused |

@@ -7,6 +7,7 @@ FP64 throughput is weak: the device precision policy, double-float grid integral
 FP32 eigensolve with iterative refinement. They are written as algorithms so that they can be implemented independently
 (see [GPU strategy](../design/gpu-strategy.md)). Facts observed in the GPU version are tagged [Convention];
 choices for the Rust implementation are tagged [Design]. The techniques are credited to H. Kawai.
+The [Convention] facts describe the GPU version at commit 08d0521 (the other LCAO chapters were checked against 3871b1f).
 
 ## Notation [Design]
 
@@ -16,7 +17,9 @@ choices for the Rust implementation are tagged [Design]. The techniques are cred
 | \\( X \\) | \\( n\times n \\) matrix of approximate eigenvectors (columns), FP64 |
 | \\( X\_1 \\) | The \\( k\_c \\) columns that are refined (\\( k\_c \\) = number of wanted states \\( m\_{\max} \\)) |
 | \\( X\_c \\) | The remaining \\( n - k\_c \\) columns |
+| \\( X\_{\mathcal C} \\) | The columns of one near-degenerate cluster (Section 4.4) |
 | \\( e^{(0)} \\) | Eigenvalues from the FP32 solve |
+| \\( f\_i \\) | Occupation of state \\( i \\) at the current chemical potential |
 | \\( \rho\_{\mathrm{dev}} \\) | Ratio of FP32 to FP64 throughput of the device |
 | NormRD | Residual norm of charge mixing ([Density matrix and charge mixing](density-mixing.md)) |
 
@@ -35,8 +38,9 @@ comes from a table by architecture family (data-centre CDNA parts 2, consumer pa
 | Dense eigensolver | FP32 solve with refinement (Section 4) | On when weak in FP64 **and** the emulated GEMM of the same kind (real or complex) is on |
 | FP64 eigensolvers from the vendor library | Fixed-point emulation of FP64 where available, retried in native FP64 on failure | On for weak-FP64 NVIDIA devices |
 
-Input keywords: `scf.fp32.enable off` disables every optional reduced-precision path; `scf.gemmul8.enable` forces the
-emulated GEMM on or off (unset: the device policy).
+Input keywords: `scf.fp32.enable off` disables the optional FP32 and double-float paths (grid integrals, orbital
+evaluation, FP32 eigensolve with refinement); it does not affect the emulated GEMM or the vendor FP64 emulation, which have
+their own settings. `scf.gemmul8.enable` forces the emulated GEMM on or off (unset: the device policy).
 
 **Inherited float products.** Upstream OpenMX forms some products in single precision and accumulates them in double
 (neutral-atom projector terms, force and stress projectors, stored orbital values). The GPU version keeps this rounding
@@ -50,7 +54,11 @@ Not adopted.
 
 ## 2. Double-float grid integrals [Convention]
 
-A double-float value is an unevaluated sum \\( x = x\_{\mathrm{hi}} + x\_{\mathrm{lo}} \\) of two FP32 numbers with
+[Public] Double-float ("double-single") arithmetic follows T. J. Dekker, Numer. Math. 18, 224-242 (1971); the
+error-free transformations (TwoSum, FMA-based TwoProduct) are those of T. Ogita, S. M. Rump and S. Oishi,
+SIAM J. Sci. Comput. 26, 1955-1988 (2005).
+
+[Convention] A double-float value is an unevaluated sum \\( x = x\_{\mathrm{hi}} + x\_{\mathrm{lo}} \\) of two FP32 numbers with
 \\( \lvert x\_{\mathrm{lo}}\rvert \le \tfrac12 \mathrm{ulp}(x\_{\mathrm{hi}}) \\). Products use an FMA-based error-free
 transformation, sums use TwoSum; one term of a grid integral costs about 10 FP32 operations. Within a tile of grid points,
 partial sums are kept in double-float; sums across tiles and atomic accumulations are in FP64.
@@ -68,73 +76,105 @@ The emulated GEMM uses the Ozaki scheme II as implemented in GEMMul8 (INT8 tenso
 - Real products use the double-precision variant; complex products use three real INT8 products per modulus
   (about three times the cost and workspace).
 - Number of moduli: 15 by default (range 2-20), accurate scaling by default.
-- Workspace: at most 30% of device memory in total, at least 1.5 GiB left free, at most 256 MiB per process sharing a
-  device; above the cap the product is blocked rather than abandoned. If the workspace cannot be obtained, the product
-  falls back to native FP64 GEMM.
+- Workspace: in total at most 30% of device memory (50% in the noncollinear band solver), divided among the processes
+  sharing the device; at least 1.5 GiB left free; and a per-process cap of 256 MiB, above which the product is computed in
+  blocks rather than abandoned. If the workspace cannot be obtained, the product falls back to native FP64 GEMM.
 - Products routed through it on weak-FP64 devices: the Löwdin forward and back transformations, density-matrix products,
   divide-and-conquer and Krylov products, the refinement products of Section 4, and the tile products of distributed GEMM.
 - On A100 it is used only for large real forward transformations (\\( n \ge 6144 \\)), where it is 7-21% faster than
-  native FP64; native FP64 is faster for 11 of 12 other product types.
+  native FP64; in a benchmark of 12 general products (real and complex, workspace capped), native FP64 was faster in 11.
 
-Accuracy checks against long-double references: maximum relative error \\( 3.7\times10^{-13} \\) over 39 general real and
-complex cases; whole-program regressions changed total energies by at most \\( 1.8\times10^{-10} \\) Ha and forces by
-\\( 9.6\times10^{-9} \\) Ha/bohr, with identical SCF iteration counts.
+Accuracy: against long-double references, the maximum relative error was \\( 3.7\times10^{-13} \\) over 39 general real
+and complex products (both scaling modes). In a strict cold-start comparison (650-atom band system, `scf.criterion`
+\\( 10^{-12} \\), AMD GPU), runs with the default emulation policy and with all accelerated paths in native FP64 took the
+same number of SCF steps and differed by \\( 2.6\times10^{-11} \\) Ha in total energy and \\( 5\times10^{-12} \\) Ha/bohr in
+forces.
 
 ## 4. FP32 eigensolve with refinement [Convention]
 
+### 4.0 Underlying algorithm [Public]
+
+The refinement is the iterative refinement of a symmetric eigendecomposition by T. Ogita and K. Aishima,
+Japan J. Indust. Appl. Math. 35, 1007-1035 (2018); clustered eigenvalues are treated in part II of that work,
+Japan J. Indust. Appl. Math. 36, 435-459 (2019). Given an approximate eigenvector matrix \\( \hat X \\) of a real
+symmetric \\( A \\), one step uses \\( R = I - \hat X^{\mathsf T}\hat X \\) and \\( S = \hat X^{\mathsf T} A \hat X \\),
+the Rayleigh-quotient estimates \\( \tilde\lambda\_i = s\_{ii}/(1 - r\_{ii}) \\), the threshold
+\\( \delta = 2\left(\lVert S - \mathrm{diag}(\tilde\lambda)\rVert\_2 + \lVert A\rVert\_2\lVert R\rVert\_2\right) \\), and the
+update \\( \hat X \leftarrow \hat X + \hat X \tilde E \\) with
+\\( \tilde e\_{ij} = (s\_{ij} + \tilde\lambda\_j r\_{ij})/(\tilde\lambda\_j - \tilde\lambda\_i) \\) when
+\\( \lvert\tilde\lambda\_j - \tilde\lambda\_i\rvert > \delta \\) and \\( \tilde e\_{ij} = r\_{ij}/2 \\) otherwise. For well
+separated eigenvalues the error decreases quadratically; for a pair closer than \\( \delta \\) only orthonormality is
+restored, and the pair's invariant subspace has to be resolved by other means. The Hermitian case replaces transposes by
+conjugate transposes. Sections 4.1-4.5 record how the GPU version adapts this scheme.
+
 ### 4.1 Preparation
 
-1. Symmetrize \\( A \\) from its lower triangle (Hermitian case: also zero the imaginary part of the diagonal).
-2. **Warm start** (allowed from the second SCF step on, when a valid basis of the same order is stored): compute the
-   first-iteration products \\( S = X^\dagger A X\_1 \\) and \\( G = X^\dagger X\_1 \\). If
-   \\( \max\_{i\ne j}\lvert S\_{ij}\rvert > 2\times10^{-5} \\) or \\( \max\lvert I - G\rvert > 2\times10^{-5} \\), discard them
-   and take the cold path. (A fresh FP32 solve leaves about \\( 4\times10^{-6} \\).)
-3. **Cold start**: convert \\( A \\) to FP32 and compute all \\( n \\) eigenpairs with a two-stage dense solver; on failure
-   retry once with a one-stage solver; on a second failure use FP64 for the rest of the SCF cycle. Set \\( X \\) to the FP32
-   eigenvectors widened to FP64 and \\( e^{(0)} \\) to the FP32 eigenvalues. Reject any non-finite value.
-4. Spectral radius \\( a = \max(\lvert e^{(0)}\_1\rvert, \lvert e^{(0)}\_n\rvert) \\).
+1. \\( A \\) is made exactly symmetric (Hermitian) by taking its lower triangle as authoritative; in the Hermitian case the
+   imaginary parts of the diagonal are set to zero.
+2. **Cold start**: all \\( n \\) eigenpairs of \\( A \\) rounded to FP32 are computed with a two-stage dense solver. If that
+   solver does not converge, one retry with a one-stage solver is made; if that also fails, FP64 is used for the rest of the
+   SCF cycle. \\( X \\) is the FP32 eigenvector matrix widened to FP64 and \\( e^{(0)} \\) the FP32 eigenvalues; any
+   non-finite value rejects the solve.
+3. **Warm start** (allowed from the second SCF step on, when a basis of the same order from a successful refined solve is
+   stored): \\( X \\) and the eigenvalue estimates are taken from the previous solve. The warm start is accepted only if the
+   quantities of the first correction step (Section 4.3) evaluated on the old basis satisfy
+   \\( \max\_{i\ne j}\lvert S\_{ij}\rvert \le 2\times10^{-5} \\) and \\( \max\lvert R\_{ij}\rvert \le 2\times10^{-5} \\); otherwise a
+   cold start is made. (A fresh FP32 solve leaves about \\( 4\times10^{-6} \\).)
+4. Spectral radius estimate \\( a = \max(\lvert e^{(0)}\_1\rvert, \lvert e^{(0)}\_n\rvert) \\) from the current estimates.
 
 ### 4.2 Occupations
 
-Find the chemical potential by bisection (200 iterations) so that the occupations \\( f(e^{(0)}\_i) \\) of the lowest
-\\( m\_{\max} \\) states sum to the electron count. With spin polarization, the eigenvalue estimates of both spins are
-exchanged first so that the chemical potential is common. In band calculations the estimates of all k-points are gathered
-before the chemical potential is set; when a process holds several k-points, a first pass refines with the previous step's
-chemical potential and a second pass refines again with the new one.
+The chemical potential is fixed by bisection (200 halvings) so that the Fermi occupations of the lowest
+\\( m\_{\max} \\) estimates of each spin add up to the electron count. With spin polarization the estimates of both spins
+enter one common chemical potential, so the processes that own the two spins exchange their estimates first. In band
+calculations the chemical potential is determined from the estimates of all k-points together. If one process holds
+more than one k-point, each of its problems is refined twice: once using the chemical potential of the preceding SCF step,
+and again, starting from that result, once the current chemical potential is known.
 
 ### 4.3 Correction steps
 
-Repeat \\( K \\) times (default \\( K = 2 \\)):
+The GPU version refines only the first \\( k\_c \\) columns \\( X\_1 \\) of the full basis \\( X \\). One correction step,
+applied \\( K \\) times (default \\( K = 2 \\)), is defined as follows; all matrix products use the emulated GEMM of Section 3.
 
-1. \\( Y = A X\_1,\ S = X^\dagger Y,\ G = X^\dagger X\_1 \\), all with the emulated GEMM (Section 3). If an emulated product
-   silently fell back to native GEMM, abandon refinement for the rest of the run.
-2. \\( \lambda\_j = S\_{jj}/G\_{jj} \\) for the refined columns; \\( R = I - G \\).
-3. On the first step only, set \\( \delta = 2\left(\max\_{i\ne j}\lvert S\_{ij}\rvert + a\max\lvert R\rvert\right) \\) and keep
-   it fixed for the remaining steps. After a warm start, \\( \delta \\) is not allowed to fall below the value of the last cold
-   solve.
-4. Correction matrix:
-   $$
-   E\_{ij} =
-   \begin{cases}
-   \dfrac{S\_{ij} + \lambda\_j R\_{ij}}{\lambda\_j - \lambda\_i} & \lvert\lambda\_j - \lambda\_i\rvert > \delta \text{ and } \lvert f\_i - f\_j\rvert \ge 10^{-12},\\\\[1ex]
-   R\_{ij}/2 & \text{otherwise.}
-   \end{cases}
-   $$
-   The second case only re-orthonormalizes; rotations inside blocks of equal occupation are deliberately not resolved.
-5. **Complement rotation** (when \\( k\_c < n \\)): with \\( S\_{rc} = Y^\dagger X\_c \\) and \\( G\_{rc} = X\_1^\dagger X\_c \\),
-   build \\( E\_{rc} \\) by the same formula and update \\( X\_c \leftarrow X\_c + X\_1 E\_{rc} \\). Without it, the refined
-   columns converge to a fixed point tilted out of the occupied subspace by about \\( 10^{-8} \\), which costs 2-5 extra SCF
-   steps and a \\( 2\times10^{-10} \\) Ha bias across warm starts.
-6. \\( X\_1 \leftarrow X\_1 + X E \\).
+- \\( S = X^\dagger A X\_1 \\) and \\( R = I\_{n\times k\_c} - X^\dagger X\_1 \\) (both \\( n\times k\_c \\)).
+- Estimates \\( \lambda\_j = S\_{jj}/(1 - R\_{jj}) \\) for \\( j \le k\_c \\); the unrefined states \\( i > k\_c \\) keep their
+  current estimates.
+- Threshold: \\( \delta = 2\left(\max\_{i\ne j}\lvert S\_{ij}\rvert + a\max\lvert R\_{ij}\rvert\right) \\). Entrywise maxima and
+  \\( a \\) replace the 2-norms of Section 4.0. \\( \delta \\) is evaluated in the first step only and kept for the remaining
+  steps; after a warm start it is not allowed to be smaller than its value in the most recent cold solve.
+- Correction matrix (\\( n\times k\_c \\)):
+  $$
+  E\_{ij} =
+  \begin{cases}
+  \dfrac{S\_{ij} + \lambda\_j R\_{ij}}{\lambda\_j - \lambda\_i} & \lvert\lambda\_j - \lambda\_i\rvert > \delta \text{ and } \lvert f\_i - f\_j\rvert \ge 10^{-12},\\\\[1ex]
+  R\_{ij}/2 & \text{otherwise.}
+  \end{cases}
+  $$
+  Unlike Section 4.0, pairs of equal occupation are only re-orthonormalized: the density matrix depends on the occupied
+  subspace, not on the basis chosen inside it.
+- **Complement rotation** (when \\( k\_c < n \\)): the remaining columns \\( X\_c \\) are corrected against \\( X\_1 \\) by the
+  same rule, with \\( S\_{rc} = X\_1^\dagger A X\_c \\), \\( R\_{rc} = -X\_1^\dagger X\_c \\) and the resulting
+  \\( k\_c\times(n-k\_c) \\) matrix \\( E\_{rc} \\): \\( X\_c \leftarrow X\_c + X\_1 E\_{rc} \\).
+  Without this rotation, the FP32-level components of \\( X\_c \\) along the occupied subspace leave the refined columns
+  converging to vectors that deviate from that subspace by about \\( 10^{-8} \\); this cost 2-5 extra SCF steps and a
+  \\( 2\times10^{-10} \\) Ha bias across chains of warm starts.
+- Update \\( X\_1 \leftarrow X\_1 + X E \\). Both updates of a step use the basis as it was at the start of the step.
+- Decision rule: when refinement is on by default (not requested explicitly) and any of its products had to fall back to
+  native FP64 GEMM, refinement is switched off for the rest of the run, since native FP64 products make it slower than an
+  FP64 eigensolve.
 
 ### 4.4 Rayleigh-Ritz on near-degenerate clusters
 
-After the correction steps, check that all entries are finite. Walk the sorted \\( \lambda \\) and chain consecutive values
-closer than \\( 30\delta \\) into clusters. For each cluster of size \\( \ge 2 \\) that contains different occupations,
-form \\( H\_c = X\_c^\dagger A X\_c \\) and \\( N\_c = X\_c^\dagger X\_c \\) (emulated GEMM above \\( 10^9 \\) flops, native
-FP64 below), solve the generalized eigenproblem (on the host for order \\( < 256 \\), on the device otherwise) and rotate
-the cluster onto its solution. If a cluster exceeds \\( \min(2048, \sqrt{n k\_c/2}) \\) states, or the solve fails, use FP64
-for the rest of the SCF cycle. On success, store the basis and eigenvalues for the next warm start.
+After the correction steps all entries of \\( X\_1 \\) and \\( \lambda \\) must be finite. The estimates
+\\( \lambda\_1, \dots, \lambda\_{k\_c} \\) (in index order) are partitioned into maximal runs in which neighbouring
+estimates differ by at most \\( 30\delta \\). A run of two or more states whose occupations, re-evaluated at the refined
+estimates, span a range of at least \\( 10^{-12} \\) is a cluster. For each cluster with columns \\( X\_{\mathcal C} \\),
+the small generalized problem \\( H\_{\mathcal C} y = \mu N\_{\mathcal C} y \\) with
+\\( H\_{\mathcal C} = X\_{\mathcal C}^\dagger A X\_{\mathcal C} \\) and \\( N\_{\mathcal C} = X\_{\mathcal C}^\dagger X\_{\mathcal C} \\)
+is solved in FP64, and \\( X\_{\mathcal C} \\) and its estimates are replaced by the Ritz vectors and values. (The products
+use the emulated GEMM when they amount to about \\( 10^9 \\) flops or more and native FP64 below; problems of order
+\\( < 256 \\) are solved on the host.) If a cluster has more than \\( \min(2048, \sqrt{n k\_c/2}) \\) states, or a solve
+fails, FP64 is used for the rest of the SCF cycle. On success the basis and estimates are stored for the next warm start.
 
 ### 4.5 Failure handling and SCF guards
 
@@ -145,21 +185,23 @@ for the rest of the SCF cycle. On success, store the basis and eigenvalues for t
   from refined vectors can be off by \\( 2\times10^{-6} \\)). The last step allowed by `scf.maxIter` is always FP64.
 - A stop on a refined step additionally requires NormRD \\( \le 100\times \\) `scf.criterion`. Without this guard one
   test run stopped five steps early with a \\( 2\times10^{-9} \\) Ha error.
-- Refinement is not used for: a single process solving both spins, core-hole (XANES) calculations, calculations with
-  emptied orbitals or states, or matrices below order 1000 on AMD devices.
+- Refinement is not used for: a single process solving both spins (including the serialized spin mode), core-hole
+  (XANES) calculations, calculations with emptied orbitals or states, or matrices below order 1000 on AMD devices.
 
 ### 4.6 Vendor-solver workaround on AMD [Convention]
 
 The AMD dense Hermitian solver returned non-finite eigenvectors for real-valued or block-diagonal Hermitian input. The GPU
 version applies a diagonal phase similarity \\( D = \mathrm{diag}(e^{2\pi i\\,\mathrm{frac}(k\varphi)}) \\) with the golden
 ratio \\( \varphi \\) before the FP32 solve, and replaces exactly-zero off-diagonal entries by about \\( 10^{-25} \\).
-[Open] Whether current AMD libraries still need this.
+The failure was observed with ROCm 7.2. [Open] Whether later AMD libraries still need this.
 
 ### 4.7 Measured effect
 
-On an RTX 5080, the 216-atom noncollinear cluster (\\( 2n = 5616 \\)) took 197.9 s instead of 261.3 s with the same SCF step
-count. On an A100, warm starts reduced the eigensolver phase from 706 to 140 ms per step; the two-stage FP32 solve took
-323 ms instead of 638 ms. In distributed solves, data redistribution dominates and refinement was not adopted.
+216-atom noncollinear cluster (\\( 2n = 5616 \\)) on an RTX 5080: the whole run went from 261.3 s to 197.9 s, with an
+unchanged number of SCF steps; the two-stage FP32 solve took 323 ms against 638 ms for the one-stage one. On an A100 (where
+refinement is not on by default), warm starts reduced the eigensolver phase from 706 to 140 ms per step. Refinement was
+not adopted for the distributed (ELPA/COSMA) path: every correction step requires four or more distributed
+\\( n\times n\times n \\) products, and one such product cost about as much as the FP32 solve saved.
 
 ## Requirements for implementations [Design]
 

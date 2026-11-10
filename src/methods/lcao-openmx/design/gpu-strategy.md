@@ -1,7 +1,7 @@
 # GPU strategy and porting policy [Design]
 
-This chapter records what the GPU version of OpenMX by H. Kawai (the "GPU version"; analysed at its November 2026 state)
-teaches us, and how its results are carried into the Rust implementation. It describes techniques and policy only.
+This chapter records what the GPU version of OpenMX by H. Kawai (the "GPU version"; analysed at commit 08d0521,
+November 2026, whereas the other LCAO chapters were checked against 3871b1f) teaches us, and how its results are carried into the Rust implementation. It describes techniques and policy only.
 Following the [writing rules](../../../process/writing-rules.md), it names no source files, functions or variables of
 the GPU version; numerical techniques are specified in [Mixed-precision GPU numerics](../modules/gpu-mixed-precision.md).
 
@@ -16,7 +16,7 @@ of hand-written kernels cover the grid integrals, and dense linear algebra goes 
 | Orbital values on the real-space grid | GPU (up to \\( l \le 3 \\) and 8 radial functions per \\( l \\)), else host SIMD | Directive loops; optionally evaluated on the fly inside Hamiltonian and density tiles |
 | Overlap of atom spheres with grid cells | GPU, else host SIMD | Directive loops |
 | Electron density on the grid from the density matrix | GPU | Hand-written kernel, one output point per thread, sparse pair lists |
-| Grid matrix elements \\( \langle\phi\lvert \delta V\_H + V\_{xc} + V\_{NA}\rvert\phi\rangle \\) | GPU | Hand-written tiled kernel: one thread block per atom pair, grid points staged in shared memory |
+| Grid matrix elements \\( \langle\phi\lvert \delta V\_H + V\_{xc} + V\_{NA}\rvert\phi\rangle \\) | GPU | Hand-written tiled kernel: grid points of one atom pair staged in shared memory, each pair's points split over a few thread blocks with atomic accumulation of their partial results |
 | Overlap and kinetic two-center integrals | CPU (GPU is transfer-bound) | Cached spherical Bessel transforms, host SIMD |
 | Nonlocal projector overlaps, neutral-atom projector expansion | GPU | Directive loops; Bessel tables built on the device, Gaunt coefficients and spherical harmonics on the host |
 | XC on the grid (GGA) | GPU | Gradient stencil, functional, divergence, noncollinear rotation |
@@ -28,8 +28,9 @@ of hand-written kernels cover the grid integrals, and dense linear algebra goes 
 | Forces | Mostly GPU | Directive loops |
 | Stress, NEGF | CPU | — |
 
-Size thresholds below which dense problems stay on the CPU: collinear cluster \\( n < 400 \\), noncollinear cluster
-\\( 2n < 400 \\), band \\( n < 800 \\) (AMD: 400), divide-and-conquer 400 (AMD: 300), DC-LNO 800 (AMD: 400), Krylov 300.
+Size thresholds below which dense problems stay on the CPU: cluster \\( n < 400 \\) (noncollinear: \\( 2n < 400 \\)),
+band \\( n < 800 \\) (AMD: 400; noncollinear: \\( 2n < 800 \\) on both), divide-and-conquer 400 (noncollinear: 300),
+DC-LNO 800 (noncollinear: 400), Krylov 300 (projected dimension).
 
 ### Measured effect [Convention]
 
@@ -38,12 +39,14 @@ Against upstream OpenMX on the CPU of the same machine:
 | Hardware | 216-atom noncollinear cluster | 650-atom band system | Upstream "L" test suite |
 |---|---|---|---|
 | RTX 5080 (18 MPI ranks sharing the GPU) | 8.2× | 5.7× | 1.7× |
-| A100 40 GB | 3.9× | 5.0× | 1.3× |
+| A100 40 GB | 3.8× | 5.0× | 1.3× |
 | H100 PCIe 80 GB | 4.4× | 4.5× | 1.4× |
-| MI300A (4 APUs) | 1.9× | 2.5× | 0.7× |
+| MI300A (4 APUs) | 2.0× | 2.4× | 1.0× |
 
-Small systems are slower on every GPU (launch latency and grid-integral overhead). On data-centre GPUs dense
-diagonalization remains the dominant phase; on consumer GPUs the gains come largely from reduced and emulated precision.
+On the 14-case upstream "S" test suite (small systems) the GPU version on the GPU is slower than its own CPU build on every
+GPU measured (ratios 0.35-0.83), and slower than upstream on the A100, MI300A, RTX 4070 Ti and Radeon RX 9060 XT.
+The numbers are single measurements from the GPU version's benchmark records (A100: partial snapshot of 2026-11-09).
+[Open] Which phase dominates the remaining time on each class of GPU has not been broken down here.
 
 ### Validation practice [Convention]
 
@@ -84,14 +87,14 @@ They are wrapped behind traits in the substrate so that each method can switch i
 | Library | License | Used for | FFI notes |
 |---|---|---|---|
 | cuBLAS, cuSOLVER (NVIDIA) | NVIDIA EULA (runtime linking) | GEMM; dense symmetric/Hermitian eigensolvers, including the emulated-FP64 modes of recent cuSOLVER | Device pointers, column-major. Accessed through tenferro-rs |
-| hipBLAS, hipSOLVER, rocSOLVER (AMD) | MIT | Same on AMD | Same |
-| GEMMul8 (RIKEN R-CCS) | MIT (to be confirmed from its LICENSE file) | FP64 GEMM emulated with INT8 tensor cores (Ozaki scheme II) | C++ templates: needs a small C shim compiled with nvcc/hipcc; link as a prebuilt library. Use public entry points only |
+| hipBLAS, hipSOLVER, rocSOLVER (AMD) | MIT (hipBLAS, hipSOLVER); BSD-2-Clause (rocSOLVER) | Same on AMD | Same |
+| GEMMul8 (RIKEN R-CCS) | MIT (LICENSE file checked, also at the commit pinned by the GPU version) | FP64 GEMM emulated with INT8 tensor cores (Ozaki scheme II) | C++ templates: needs a small C shim compiled with nvcc/hipcc; link as a prebuilt library. Use public entry points only |
 | MAGMA | BSD-3 | Single- and multi-GPU dense eigensolvers | C API |
 | ELPA | LGPL-3.0 | Distributed eigensolvers on CPU and GPU | C API; link dynamically. Expects a Fortran MPI communicator handle and BLACS block-cyclic distribution |
 | COSMA (+ COSTA, Tiled-MM) | BSD-3 | Communication-optimal distributed GEMM | ScaLAPACK-compatible C entry points; avoid internal C++ APIs |
 | ScaLAPACK / BLACS | BSD | Block-cyclic distribution for ELPA and COSMA | Avoid non-public BLACS functions |
 | FFTW | GPL-2.0+ | — | Not linked. Use a permissive FFT (rustfft on the host, cuFFT/rocFFT via tenferro-rs) |
-| Kokkos | Apache-2.0 | — | Not needed in Rust |
+| Kokkos | Apache-2.0 with LLVM exception | — | Not needed in Rust |
 
 Library patches made in the GPU version (device mapping in MAGMA, a GEMM hook in Tiled-MM, routing MAGMA's BLAS-3 phases
 through GEMMul8 on AMD) are re-specified as requirements rather than carried over, unless released permissively.
@@ -125,7 +128,7 @@ GPUs and nodes. Most of the negotiation machinery then disappears; what remains 
 
 | Phase | Content | Done when |
 |---|---|---|
-| 0 | CPU reference implementation in Rust from the specifications | Small-system fixtures pass at the [Convention] tolerances; agrees with the GPU version's CPU build within \\( 10^{-7} \\) |
+| 0 | CPU reference implementation in Rust from the specifications | Small-system fixtures pass at the [Convention] tolerances; agrees with the GPU version's CPU build within \\( 10^{-7} \\) Ha and Ha/bohr |
 | 1 | Dense linear algebra on GPU through vendor libraries (Löwdin transformation, eigensolvers, density matrix with eigenvectors kept on the device) | Same gates on the GPU; diagonalization speedup measured on a 216-atom noncollinear cluster |
 | 2 | Grid kernels via NVRTC: orbital evaluation, density, grid matrix elements, XC | Same gates; per-kernel timings compared with the GPU version |
 | 3 | Mixed precision: GEMMul8 through FFI, FP32 eigensolve with refinement, double-float grid integrals | Strict test (\\( 10^{-10} \\) Ha) on consumer GPUs |
@@ -134,6 +137,5 @@ GPUs and nodes. Most of the negotiation machinery then disappears; what remains 
 ## [Open]
 
 - Whether H. Kawai will release the library bridges and patches under a permissive license.
-- GEMMul8's license file (only its README has been checked).
 - The tenferro-rs plan for hipRTC and for exposing cuSOLVER emulation modes.
 - Whether to keep the size thresholds of the GPU version or re-tune them for the Rust implementation.
