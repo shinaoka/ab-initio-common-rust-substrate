@@ -1,44 +1,42 @@
-# 二中心積分：重なり・運動エネルギー
+# Two-center integrals: overlap and kinetic energy
 
-> 状態：試作（レビュー待ち）。式は技術ノート 1（Eq. 36–46）の方法を、このノートの
-> [Fourier 変換の規約](../../../conventions/notation.md) で導出し直したものです。
+> Status: prototype (awaiting review). The formulas re-derive the method of technical note 1 (Eqs. 36–46) using this note's
+> [Fourier transform convention](../../../conventions/notation.md).
 
-## 定義
+## Definition
 
-原子 \\( I \\) の基底関数を \\( \phi\_a \\)、原子 \\( J \\) の基底関数を \\( \phi\_b \\) とし、
-原子間ベクトルを \\( \boldsymbol\tau = \mathbf R\_J + \mathbf L - \mathbf R\_I \\) とします。
+Let \\( \phi\_a \\) be a basis function of atom \\( I \\), \\( \phi\_b \\) a basis function of atom \\( J \\),
+and the interatomic vector \\( \boldsymbol\tau = \mathbf R\_J + \mathbf L - \mathbf R\_I \\).
 
 $$
 S\_{ab}(\boldsymbol\tau) = \int d^3 r\\, \phi\_a^{\ast}(\mathbf r)\\, \phi\_b(\mathbf r - \boldsymbol\tau),\qquad
 T\_{ab}(\boldsymbol\tau) = \int d^3 r\\, \phi\_a^{\ast}(\mathbf r) \left(-\tfrac12 \nabla^2\right) \phi\_b(\mathbf r - \boldsymbol\tau)
 $$
 
-## 方法〔公開〕
+## Method [Public]
 
-技術ノート 1 と同様に、波数空間で計算します。
+As in technical note 1, the computation is done in wave-number space.
 
-### 1. 動径関数の変換
+### 1. Transformation of radial functions
 
-複素球面調和関数で \\( \phi\_a(\mathbf r) = R\_a(r) Y\_{lm}(\hat{\mathbf r}) \\) と書くと、平面波展開
+Writing \\( \phi\_a(\mathbf r) = R\_a(r) Y\_{lm}(\hat{\mathbf r}) \\) with complex spherical harmonics, the plane-wave expansion
 
 $$
 e^{-i\mathbf k\cdot\mathbf r} = 4\pi \sum\_{LM} (-i)^L j\_L(kr)\\, Y\_{LM}(\hat{\mathbf k})\\, Y^{\ast}\_{LM}(\hat{\mathbf r})
 $$
 
-と球面調和関数の正規直交性から
+and the orthonormality of spherical harmonics give
 
 $$
 \tilde\phi\_a(\mathbf k) = 4\pi (-i)^{l}\\, Y\_{lm}(\hat{\mathbf k})\\, \tilde R\_a(k),\qquad
 \tilde R\_a(k) = \int\_0^\infty dr\\, r^2 j\_l(kr) R\_a(r)
 $$
 
-が得られます。
+### 2. Overlap
 
-### 2. 重なり
-
-Parseval の等式 \\( \int f^{\ast} g = (2\pi)^{-3}\int \tilde f^{\ast}\tilde g \\) と、平行移動
-\\( \widetilde{\phi\_b(\cdot - \boldsymbol\tau)}(\mathbf k) = e^{-i\mathbf k\cdot\boldsymbol\tau}\tilde\phi\_b(\mathbf k) \\) を使い、
-\\( e^{-i\mathbf k\cdot\boldsymbol\tau} \\) を再び平面波展開すると、
+Using Parseval's identity \\( \int f^{\ast} g = (2\pi)^{-3}\int \tilde f^{\ast}\tilde g \\) and the translation
+\\( \widetilde{\phi\_b(\cdot - \boldsymbol\tau)}(\mathbf k) = e^{-i\mathbf k\cdot\boldsymbol\tau}\tilde\phi\_b(\mathbf k) \\),
+and expanding \\( e^{-i\mathbf k\cdot\boldsymbol\tau} \\) again in plane waves, one obtains
 
 $$
 S\_{ab}(\boldsymbol\tau) = 8 \sum\_{LM} i^{\\,l - l' - L}\\; G(lm;\\, l'm',\\, LM)\\; Y^{\ast}\_{LM}(\hat{\boldsymbol\tau})\\; I^{(0)}\_{L}(\tau)
@@ -48,127 +46,123 @@ $$
 I^{(n)}\_{L}(\tau) = \int\_0^\infty dk\\, k^{2+n}\\, j\_L(k\tau)\\, \tilde R\_a(k)\\, \tilde R\_b(k)
 $$
 
-となります。ここで \\( l' m' \\) は \\( \phi\_b \\) の量子数、\\( \tau = \lVert\boldsymbol\tau\rVert \\)、
+Here \\( l' m' \\) are the quantum numbers of \\( \phi\_b \\), \\( \tau = \lVert\boldsymbol\tau\rVert \\), and
 
 $$
 G(lm;\\, l'm',\\, LM) = \int d\Omega\\; Y^{\ast}\_{lm}\\, Y\_{l'm'}\\, Y\_{LM}
 $$
 
-は Gaunt 係数です。係数 8 は \\( (4\pi)^3/(2\pi)^3 \\) です。
+is the Gaunt coefficient. The factor 8 is \\( (4\pi)^3/(2\pi)^3 \\).
 
-- Gaunt 係数は \\( l + l' + L \\) が偶数かつ三角条件 \\( |l - l'| \le L \le l + l' \\) を満たすときだけ 0 でないので、
-  \\( i^{\\,l-l'-L} \\) は \\( \pm 1 \\) です。和は有限です。
-- \\( M = m - m' \\) 以外の項は 0 です。
+- The Gaunt coefficient is nonzero only when \\( l + l' + L \\) is even and the triangle condition \\( |l - l'| \le L \le l + l' \\) holds,
+  so \\( i^{\\,l-l'-L} \\) is \\( \pm 1 \\). The sum is finite.
+- Terms other than \\( M = m - m' \\) vanish.
 
-### 3. 運動エネルギー
+### 3. Kinetic energy
 
-\\( -\tfrac12\nabla^2 \\) は波数空間で \\( k^2/2 \\) を掛けることに当たるので、
+Since \\( -\tfrac12\nabla^2 \\) corresponds to multiplication by \\( k^2/2 \\) in wave-number space,
 
 $$
 T\_{ab}(\boldsymbol\tau) = 4 \sum\_{LM} i^{\\,l - l' - L}\\; G(lm;\\, l'm',\\, LM)\\; Y^{\ast}\_{LM}(\hat{\boldsymbol\tau})\\; I^{(2)}\_{L}(\tau)
 $$
 
-です。
+> **Check**: the overlap formula (several pairs with \\( l, l' \le 2 \\)) and the kinetic-energy formula (s–s)
+> were confirmed with `tools/check_two_center.py` to agree to 6 or more digits with direct integration on a 3D grid and with analytic solutions,
+> for Gaussian radial functions \\( r^l e^{-\alpha r^2} \\).
 
-> **検算**：重なりの式（\\( l, l' \le 2 \\) の複数の組）と運動エネルギーの式（s–s）は、
-> Gauss 型動径関数 \\( r^l e^{-\alpha r^2} \\) について、三次元格子上の直接積分および解析解と
-> 6 桁以上で一致することを `tools/check_two_center.py` で確認しています。
+> **Note on Eq. 46 of technical note 1**: in that equation, the argument of the spherical Bessel function is printed as \\( kr \\), but
+> from the correspondence with the overlap formula (Eq. 44), \\( k\lvert\boldsymbol\tau\rvert \\) is believed to be correct.
+> The derivation above is consistent with that.
 
-> **技術ノート 1 Eq. 46 についての注記**：同式では球 Bessel 関数の引数が \\( kr \\) と印字されていますが、
-> 重なりの式（Eq. 44）との対応から \\( k\lvert\boldsymbol\tau\rvert \\) が正しいと考えられます。
-> 上の導出もそれと整合します。
+### 4. Transformation to real spherical harmonics
 
-### 4. 実球面調和関数への変換
-
-実基底 \\( \phi^{R}\_{\mu} = \sum\_m U^{(l)}\_{\mu m}\phi\_{m} \\)（[PAO 基底](pao-basis.md)）では
+In the real basis \\( \phi^{R}\_{\mu} = \sum\_m U^{(l)}\_{\mu m}\phi\_{m} \\) ([PAO basis](pao-basis.md)),
 
 $$
 S^{R}\_{\mu\nu} = \sum\_{m m'} \overline{U^{(l)}\_{\mu m}}\\; U^{(l')}\_{\nu m'}\\; S\_{m m'}
 $$
 
-です。結果は実数になります（虚部は丸め誤差のみ）。実 Gaunt 係数と実球面調和関数
-\\( S\_{LM}(\hat{\boldsymbol\tau}) \\) を使って直接実数で計算しても構いません。
+The result is real (the imaginary part is rounding error only). One may also compute directly in real arithmetic using real Gaunt coefficients and real spherical harmonics
+\\( S\_{LM}(\hat{\boldsymbol\tau}) \\).
 
-〔規約〕既存実装は複素基底で計算してから上の変換を行い、実部だけを残します。
+[Convention] The existing implementation computes in the complex basis, then applies the above transformation and keeps only the real part.
 
-## 原子対の範囲〔規約〕
+## Range of atom pairs [Convention]
 
-重なりと運動エネルギーを計算する原子対は、
+The atom pairs for which the overlap and kinetic energy are computed are all \\( (I, J, \mathbf L) \\) satisfying
 
 $$
 \lVert \boldsymbol\tau \rVert \le r\_{c,I} + r\_{c,J}
 $$
 
-を満たす \\( (I, J, \mathbf L) \\) のすべてです。
+- \\( r\_c \\) is the value of `radial.cutoff.pao` in the PAO file of each species ([PAO basis](pao-basis.md)).
+- The inequality includes equality. Pairs at a distance of exactly \\( r\_{c,I} + r\_{c,J} \\) are included, but their values are 0.
+- The atom itself (\\( J = I \\), \\( \mathbf L = 0 \\)) is included as a pair.
+- Periodic images (\\( J = I \\), \\( \mathbf L \ne 0 \\)) are also treated as separate pairs if they satisfy the condition.
+- For pairs outside the range, \\( S = T = 0 \\) and they are not stored in the matrix.
 
-- \\( r\_c \\) は各原子種の PAO ファイルの `radial.cutoff.pao` の値です（[PAO 基底](pao-basis.md)）。
-- 不等号は等号を含みます。ちょうど \\( r\_{c,I} + r\_{c,J} \\) の距離の対も含めますが、値は 0 です。
-- 原子自身（\\( J = I \\)、\\( \mathbf L = 0 \\)）も対に含めます。
-- 周期像（\\( J = I \\)、\\( \mathbf L \ne 0 \\)）も、条件を満たせば別の対として扱います。
-- 範囲外の対では \\( S = T = 0 \\) として行列に持ちません。
+[Design] The draft of the [sparse block format](../design/sparse-block-format.md) uses the strict inequality \\( < \\).
+Since the values of pairs on the boundary are 0, physical quantities do not change whichever is adopted.
+Matching \\( \le \\) is necessary only when comparing even the ordering and number of atom pairs with the existing implementation.
 
-〔設計〕[疎ブロック形式](../design/sparse-block-format.md) の叩き台は狭義の不等号 \\( < \\) です。
-境界上の対の値は 0 なので、どちらを採っても物理量は変わりません。
-既存実装と原子対の並び・数まで照合する場合だけ、\\( \le \\) に合わせる必要があります。
+## Numerical parameters of the wave-number integration [Convention]
 
-## 波数積分の数値パラメータ〔規約〕
+### Input keywords [Public]
 
-### 入力キーワード〔公開〕
+Manual Section 8.2 has the following three keywords.
 
-マニュアル 8.2 節に次の 3 つのキーワードがあります。
-
-| キーワード | 既定値 | 意味（マニュアルの説明を要約） |
+| Keyword | Default | Meaning (summary of the manual's description) |
 |---|---|---|
-| `1DFFT.EnergyCutoff` | 3600（Ry） | 動径関数の Fourier 変換で使う波数の上限をエネルギーで与える |
-| `1DFFT.NumGridK` | 900 | 変換後の動径関数を保存する波数格子の点数 |
-| `1DFFT.NumGridR` | 900 | 変換の数値積分に使う実空間の動径格子の点数 |
+| `1DFFT.EnergyCutoff` | 3600 (Ry) | Upper limit of the wave number used in the Fourier transform of radial functions, given as an energy |
+| `1DFFT.NumGridK` | 900 | Number of points of the wave-number grid on which the transformed radial functions are stored |
+| `1DFFT.NumGridR` | 900 | Number of points of the real-space radial grid used for the numerical integration of the transform |
 
-波数の上限は \\( k\_{\max} = \sqrt{E\_{\mathrm{cut}}[\mathrm{Ry}]} \\) です（[記法](../../../conventions/notation.md)）。既定値では 60 bohr⁻¹ です。
+The upper limit of the wave number is \\( k\_{\max} = \sqrt{E\_{\mathrm{cut}}[\mathrm{Ry}]} \\) ([notation](../../../conventions/notation.md)). With the default it is 60 bohr⁻¹.
 
-### 既存実装での使われ方
+### Usage in the existing implementation
 
-以下、\\( N\_K \\) を `1DFFT.NumGridK`、\\( N\_R \\) を `1DFFT.NumGridR` とします。
+Below, \\( N\_K \\) denotes `1DFFT.NumGridK` and \\( N\_R \\) denotes `1DFFT.NumGridR`.
 
-**(a) 動径関数の球 Bessel 変換** \\( \tilde R(k) = \int dr\\, r^2 j\_l(kr) R(r) \\)
+**(a) Spherical Bessel transform of radial functions** \\( \tilde R(k) = \int dr\\, r^2 j\_l(kr) R(r) \\)
 
-| 項目 | 値 |
+| Item | Value |
 |---|---|
-| 積分範囲 | \\( r\_{\min} \le r \le r\_c + 0.5 \\) bohr（\\( r\_{\min} \\) は PAO ファイルの最初の格子点） |
-| 積分則 | \\( r \\) について等間隔の \\( N\_R \\) 区間、台形則。各点の \\( R(r) \\) は表の補間 |
-| 前因子 | なし（[記法](../../../conventions/notation.md) の定義どおり。\\( \sqrt{2/\pi} \\) などは付けない） |
-| 保存する波数 | \\( k\_j = j\\, k\_{\max}/N\_K \\)、\\( j = 0, 1, \dots, N\_K - 1 \\) |
-| 保存の外 | \\( k > k\_{N\_K-1} \\) では \\( \tilde R = 0 \\)。間は補間 |
-| 対象 | 基底指定で使う動径関数だけ（各 \\( l \\) の先頭 \\( N\_l \\) 個） |
+| Integration range | \\( r\_{\min} \le r \le r\_c + 0.5 \\) bohr (\\( r\_{\min} \\) is the first grid point of the PAO file) |
+| Quadrature | \\( N\_R \\) equally spaced intervals in \\( r \\), trapezoidal rule. \\( R(r) \\) at each point is interpolated from the table |
+| Prefactor | None (as defined in [notation](../../../conventions/notation.md); no \\( \sqrt{2/\pi} \\) etc.) |
+| Stored wave numbers | \\( k\_j = j\\, k\_{\max}/N\_K \\), \\( j = 0, 1, \dots, N\_K - 1 \\) |
+| Outside storage | \\( \tilde R = 0 \\) for \\( k > k\_{N\_K-1} \\). Interpolated in between |
+| Targets | Only the radial functions used by the basis specification (the first \\( N\_l \\) of each \\( l \\)) |
 
-**(b) 重なり・運動エネルギーの波数積分** \\( I^{(n)}\_L(\tau) = \int dk\\, k^{2+n} j\_L(k\tau)\tilde R\_a\tilde R\_b \\)
+**(b) Wave-number integration for overlap and kinetic energy** \\( I^{(n)}\_L(\tau) = \int dk\\, k^{2+n} j\_L(k\tau)\tilde R\_a\tilde R\_b \\)
 
-| 項目 | 値 |
+| Item | Value |
 |---|---|
-| 積分範囲 | \\( k\_{\min} \le k \le k\_{\max} \\)、\\( k\_{\min} = 10^{-6} \\) bohr⁻¹ |
-| 積分則 | \\( k \\) について等間隔の \\( N\_R \\) 区間（\\( N\_R + 1 \\) 点）、台形則 |
-| \\( \tilde R(k) \\) | (a) の表の補間 |
-| 球 Bessel 関数 | \\( L = 0, \dots, 2\max(l\_{\max,I}, l\_{\max,J}) \\) を各点で直接評価 |
+| Integration range | \\( k\_{\min} \le k \le k\_{\max} \\), \\( k\_{\min} = 10^{-6} \\) bohr⁻¹ |
+| Quadrature | \\( N\_R \\) equally spaced intervals in \\( k \\) (\\( N\_R + 1 \\) points), trapezoidal rule |
+| \\( \tilde R(k) \\) | Interpolation of the table from (a) |
+| Spherical Bessel functions | \\( L = 0, \dots, 2\max(l\_{\max,I}, l\_{\max,J}) \\) evaluated directly at each point |
 
-- `1DFFT.NumGridR` は、(a) の \\( r \\) の区間数と (b) の \\( k \\) の区間数の両方に使われます。
-  既定値では (b) の刻みは \\( 60/900 \approx 0.067 \\) bohr⁻¹ です。
-- Gauss–Legendre 積分は使いません。技術ノート 15 の「Gauss–Legendre 128 点」は別の積分（射影子展開など）の話です。
-- \\( k\_{\max} \\) 付近の \\( \tilde R \\) は十分小さいので、(a) の保存範囲が \\( k\_{\max} \\) に 1 刻み届かないことの影響は無視できます。
+- `1DFFT.NumGridR` is used both for the number of \\( r \\) intervals in (a) and for the number of \\( k \\) intervals in (b).
+  With the default, the step in (b) is \\( 60/900 \approx 0.067 \\) bohr⁻¹.
+- Gauss–Legendre quadrature is not used. The "128-point Gauss–Legendre" in technical note 15 concerns other integrals (projector expansion, etc.).
+- Since \\( \tilde R \\) near \\( k\_{\max} \\) is sufficiently small, the effect of the storage range of (a) falling one step short of \\( k\_{\max} \\) is negligible.
 
-〔設計〕再実装では、同じ精度が出る限り積分則と格子は自由に選んでよいです
-（例：Toyoda–Ozaki の高速球 Bessel 変換（CPC **181**, 277）、Gauss 型の積分則）。
-ただし、上限 \\( k\_{\max} \\) は `1DFFT.EnergyCutoff` から上の式で決め、既定値 3600 Ry を守ります。
-`1DFFT.NumGridK`、`1DFFT.NumGridR` は入力として受け付け、積分の分解能の指定と解釈します。
-\\( \tilde R(k) \\) は原子種ごとに一度だけ表にして、原子対ごとには再計算しません。
+[Design] The reimplementation may freely choose quadrature and grids as long as the same accuracy is achieved
+(e.g. the Toyoda–Ozaki fast spherical Bessel transform (CPC **181**, 277), Gaussian quadrature rules).
+However, the upper limit \\( k\_{\max} \\) is determined from `1DFFT.EnergyCutoff` by the formula above, and the default of 3600 Ry is kept.
+`1DFFT.NumGridK` and `1DFFT.NumGridR` are accepted as input and interpreted as specifying the resolution of the integration.
+\\( \tilde R(k) \\) is tabulated only once per species and not recomputed per atom pair.
 
-**精度の目安**：実際の PAO（C6.0、H5.0、O6.0 の最初の s 関数）で、上の既定の格子による s–s 重なりと、
-実空間での直接積分を比べると、\\( 0 \le \tau \le 12 \\) bohr で差は \\( 4\times 10^{-7} \\) 以下でした。
-\\( \tau \ge r\_{c,a}+r\_{c,b} \\) での波数積分の残差は \\( 10^{-8} \\) 程度です（`tools/check_pao_file.py`）。
+**Accuracy estimate**: for actual PAOs (the first s function of C6.0, H5.0, O6.0), comparing the s–s overlap on the default grid above with
+direct integration in real space gave differences of at most \\( 4\times 10^{-7} \\) for \\( 0 \le \tau \le 12 \\) bohr.
+The residual of the wave-number integration at \\( \tau \ge r\_{c,a}+r\_{c,b} \\) is about \\( 10^{-8} \\) (`tools/check_pao_file.py`).
 
-## 特別な場合
+## Special cases
 
-### \\( \tau = 0 \\)〔規約〕
+### \\( \tau = 0 \\) [Convention]
 
-\\( j\_L(0) = \delta\_{L0} \\) なので \\( L = 0 \\) の項だけが残り、
+Since \\( j\_L(0) = \delta\_{L0} \\), only the \\( L = 0 \\) term remains, and
 
 $$
 S\_{ab}(0) = \delta\_{ll'}\delta\_{mm'}\\,\frac{2}{\pi}\int\_0^\infty dk\\, k^2 \tilde R\_a \tilde R\_b = \delta\_{ll'}\delta\_{mm'}\int\_0^\infty dr\\, r^2 R\_a R\_b,
@@ -176,28 +170,28 @@ S\_{ab}(0) = \delta\_{ll'}\delta\_{mm'}\\,\frac{2}{\pi}\int\_0^\infty dk\\, k^2 
 T\_{ab}(0) = \delta\_{ll'}\delta\_{mm'}\\,\frac{1}{\pi}\int\_0^\infty dk\\, k^4 \tilde R\_a \tilde R\_b
 $$
 
-です。方向 \\( \hat{\boldsymbol\tau} \\) は不定ですが、\\( L = 0 \\) の項は方向によりません。
+The direction \\( \hat{\boldsymbol\tau} \\) is undefined, but the \\( L = 0 \\) term does not depend on direction.
 
-- 既存実装は、\\( \tau < 10^{-10} \\) bohr を \\( \tau = 10^{-10} \\) bohr に置き換えて一般の式で計算します。
-  このとき \\( L \ge 1 \\) の項は実質 0 になり、上の式と一致します。方向は任意の値で構いません。
-- 原子自身の対（\\( J = I \\)、\\( \mathbf L = 0 \\)）では、原子間ベクトルによる微分（下記）を 0 とします。
-- 〔設計〕再実装では \\( \tau < 10^{-10} \\) bohr を \\( \tau = 0 \\) とみなし、上の閉じた式を使います。
-  同じ原子上で同じ \\( l \\) の異なる \\( \zeta \\) の重なりは、表の直交性（[PAO 基底](pao-basis.md)）から 0 に近い値になります。
+- The existing implementation replaces \\( \tau < 10^{-10} \\) bohr by \\( \tau = 10^{-10} \\) bohr and computes with the general formula.
+  The \\( L \ge 1 \\) terms then effectively vanish, in agreement with the above formula. The direction may be arbitrary.
+- For the pair of an atom with itself (\\( J = I \\), \\( \mathbf L = 0 \\)), the derivative with respect to the interatomic vector (below) is set to 0.
+- [Design] The reimplementation treats \\( \tau < 10^{-10} \\) bohr as \\( \tau = 0 \\) and uses the closed formula above.
+  The overlap between different \\( \zeta \\) of the same \\( l \\) on the same atom is close to 0 owing to the orthogonality of the table ([PAO basis](pao-basis.md)).
 
 ### \\( \tau \ge r\_{c,a} + r\_{c,b} \\)
 
-厳密に 0 です。波数空間の数値積分では小さな残差（上記）が出るので、この範囲の原子対は計算しません。
+Exactly 0. Numerical integration in wave-number space leaves a small residual (above), so atom pairs in this range are not computed.
 
-### 重なり行列に加える微小な乱数〔規約〕
+### Small random numbers added to the overlap matrix [Convention]
 
-既存実装は、重なり行列の各要素に、幅 \\( 10^{-13} \\) の一様乱数（\\( [-5\times10^{-14}, 5\times10^{-14}] \\)）を加えます。
-数値的な縮退を崩すためのものと考えられます。
+The existing implementation adds to each element of the overlap matrix a uniform random number of width \\( 10^{-13} \\) (\\( [-5\times10^{-14}, 5\times10^{-14}] \\)).
+This is presumably intended to break numerical degeneracies.
 
-〔設計〕再実装では加えません。照合の許容誤差は \\( 10^{-12} \\) より大きくとります。
+[Design] The reimplementation does not add them. Comparison tolerances are taken larger than \\( 10^{-12} \\).
 
-## 原子間ベクトルによる微分（力の計算用）
+## Derivatives with respect to the interatomic vector (for force calculations)
 
-〔公開〕\\( f\_L(\tau) = I^{(n)}\_L(\tau) \\) と \\( Y^{\ast}\_{LM}(\hat{\boldsymbol\tau}) \\) の積の勾配は
+[Public] The gradient of the product of \\( f\_L(\tau) = I^{(n)}\_L(\tau) \\) and \\( Y^{\ast}\_{LM}(\hat{\boldsymbol\tau}) \\) is
 
 $$
 \nabla\_{\boldsymbol\tau}\left[f\_L(\tau)\\,Y^{\ast}\_{LM}(\hat{\boldsymbol\tau})\right]
@@ -205,39 +199,39 @@ $$
 {}+ \frac{f\_L(\tau)}{\tau}\left(\partial\_\theta Y^{\ast}\_{LM}\\,\mathbf e\_\theta + \frac{1}{\sin\theta}\partial\_\varphi Y^{\ast}\_{LM}\\,\mathbf e\_\varphi\right)
 $$
 
-で、\\( f\_L'(\tau) = \int dk\\, k^{3+n} j\_L'(k\tau)\tilde R\_a\tilde R\_b \\) です。技術ノート 1 は、
-力の計算でこれらの微分を解析的に評価すると述べています。
+with \\( f\_L'(\tau) = \int dk\\, k^{3+n} j\_L'(k\tau)\tilde R\_a\tilde R\_b \\). Technical note 1 states that
+these derivatives are evaluated analytically in force calculations.
 
-〔規約〕
+[Convention]
 
-- 既存実装は、\\( S \\)・\\( T \\) と同時に、中心原子の位置による微分
-  \\( \partial S\_{ab}/\partial \mathbf R\_I = -\nabla\_{\boldsymbol\tau} S\_{ab} \\)（\\( T \\) も同様）の 3 成分を、同じ波数格子で計算して保持します。
-- 極（\\( \lvert\sin\theta\rvert < 10^{-13} \\) 程度。\\( \boldsymbol\tau \\) が \\( z \\) 軸に平行な対）では、
-  方位角を 0 とし、\\( \frac{1}{\sin\theta}\partial\_\varphi \\) の項を落とします。
-  \\( Y\_{LM} \propto \sin^{\lvert M\rvert}\theta \\) なので、この項の極限値は \\( \lvert M\rvert = 1 \\) のときだけ 0 でなく、
-  その寄与（方位角 0 では \\( y \\) 成分）が欠けます。例えば s 軌道と \\( p\_y \\) 軌道の対を \\( z \\) 軸上に置くと、
-  正しい \\( \partial S/\partial \tau\_y = f(\tau)/\tau \\)（\\( f \\) は動径部分）は 0 でありませんが、この扱いでは 0 になります。
-- 〔設計〕再実装では極限値を正しく入れるか、Cartesian 成分で微分を書いて特異点を避けます。
-  そのため、既存実装との微分の照合では、\\( z \\) 軸に平行な原子対を含む構造を避けるか、この差を許します。
-  〔未確定〕この差が既存実装の力にどれだけ現れるか（対称性で打ち消される場合が多い）は、
-  [エネルギーと力](energy-force.md) の章で有限差分により確認します。
-- 同じ処理の中で軌道角運動量演算子の行列要素も計算されますが、このノートの範囲外です。
+- The existing implementation computes and stores, together with \\( S \\) and \\( T \\), the three components of the derivative with respect to the position of the central atom,
+  \\( \partial S\_{ab}/\partial \mathbf R\_I = -\nabla\_{\boldsymbol\tau} S\_{ab} \\) (likewise for \\( T \\)), on the same wave-number grid.
+- At the poles (about \\( \lvert\sin\theta\rvert < 10^{-13} \\); pairs with \\( \boldsymbol\tau \\) parallel to the \\( z \\) axis),
+  the azimuth is set to 0 and the \\( \frac{1}{\sin\theta}\partial\_\varphi \\) term is dropped.
+  Since \\( Y\_{LM} \propto \sin^{\lvert M\rvert}\theta \\), the limiting value of this term is nonzero only for \\( \lvert M\rvert = 1 \\),
+  and that contribution (the \\( y \\) component at azimuth 0) is missing. For example, placing a pair of an s orbital and a \\( p\_y \\) orbital on the \\( z \\) axis,
+  the correct \\( \partial S/\partial \tau\_y = f(\tau)/\tau \\) (\\( f \\) is the radial part) is nonzero, but this treatment gives 0.
+- [Design] The reimplementation either includes the limiting value correctly, or writes the derivatives in Cartesian components to avoid the singularity.
+  Therefore, when comparing derivatives with the existing implementation, either avoid structures containing atom pairs parallel to the \\( z \\) axis, or allow for this difference.
+  [Open] How much this difference shows up in the forces of the existing implementation (it is often canceled by symmetry) is checked by finite differences
+  in the [energy and forces](energy-force.md) chapter.
+- Matrix elements of the orbital angular momentum operator are also computed in the same routine, but they are outside the scope of this note.
 
-## テスト
+## Tests
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Approximate tolerance |
 |---|---|---|
-| 解析 | 2 つの規格化 s 型 Gauss 関数 \\( e^{-\alpha r^2} \\)、\\( e^{-\beta r^2} \\)：\\( S = \left(\frac{2\sqrt{\alpha\beta}}{\alpha+\beta}\right)^{3/2} e^{-\mu\tau^2} \\)、\\( \mu = \frac{\alpha\beta}{\alpha+\beta} \\) | \\( 10^{-10} \\) |
-| 解析 | 同じ組の運動エネルギー：\\( T = \mu\\,(3 - 2\mu\tau^2)\\, S \\) | \\( 10^{-10} \\) |
-| 解析 | p・d 型 Gauss 関数の重なり（Gauss 積の定理による閉じた式） | \\( 10^{-10} \\) |
-| 解析 | \\( \tau = 0 \\) での \\( S\_{ab} = \delta\_{ll'}\delta\_{mm'}\int r^2 R\_a R\_b\\,dr \\) | \\( 10^{-12} \\) |
-| 解析 | \\( \tau < 10^{-10} \\) bohr の対で \\( \tau = 0 \\) の式と一致し、方向によらないこと | \\( 10^{-12} \\) |
-| 不変量 | \\( S\_{ab}(\boldsymbol\tau) = \overline{S\_{ba}(-\boldsymbol\tau)} \\)、\\( T \\) も同様 | 丸め誤差 |
-| 不変量 | 構造全体の回転で、行列が実球面調和関数の回転行列で変換されること | \\( 10^{-10} \\) |
-| 不変量 | \\( \tau \ge r\_{c,a}+r\_{c,b} \\) の対が一覧にないこと。\\( \tau = r\_{c,a}+r\_{c,b} \\) ちょうどの対は既存実装では一覧にある | 厳密 |
-| 不変量 | 解析微分と有限差分の一致（極の近くの \\( \boldsymbol\tau \\) を含む） | \\( 10^{-6} \\) 程度 |
-| 収束 | 実際の PAO で、既定の波数格子と細かい格子（または実空間の直接積分）の差 | \\( 10^{-6} \\) |
-| 照合 | 実際の PAO（例：C6.0、O6.0、Fe6.0S）で、いくつかの \\( \boldsymbol\tau \\) について既存実装の出力（scfout の重なり行列など）と比較 | \\( 10^{-6} \\)（積分則の差を許す。乱数の寄与 \\( 10^{-13} \\) は無視できる） |
+| Analytic | Two normalized s-type Gaussians \\( e^{-\alpha r^2} \\), \\( e^{-\beta r^2} \\): \\( S = \left(\frac{2\sqrt{\alpha\beta}}{\alpha+\beta}\right)^{3/2} e^{-\mu\tau^2} \\), \\( \mu = \frac{\alpha\beta}{\alpha+\beta} \\) | \\( 10^{-10} \\) |
+| Analytic | Kinetic energy of the same pair: \\( T = \mu\\,(3 - 2\mu\tau^2)\\, S \\) | \\( 10^{-10} \\) |
+| Analytic | Overlap of p- and d-type Gaussians (closed form by the Gaussian product theorem) | \\( 10^{-10} \\) |
+| Analytic | \\( S\_{ab} = \delta\_{ll'}\delta\_{mm'}\int r^2 R\_a R\_b\\,dr \\) at \\( \tau = 0 \\) | \\( 10^{-12} \\) |
+| Analytic | Pairs with \\( \tau < 10^{-10} \\) bohr agree with the \\( \tau = 0 \\) formula and are independent of direction | \\( 10^{-12} \\) |
+| Invariant | \\( S\_{ab}(\boldsymbol\tau) = \overline{S\_{ba}(-\boldsymbol\tau)} \\), likewise for \\( T \\) | Rounding error |
+| Invariant | Under rotation of the whole structure, the matrices transform by the rotation matrices of real spherical harmonics | \\( 10^{-10} \\) |
+| Invariant | Pairs with \\( \tau \ge r\_{c,a}+r\_{c,b} \\) are not in the list. Pairs with exactly \\( \tau = r\_{c,a}+r\_{c,b} \\) are in the list in the existing implementation | Exact |
+| Invariant | Agreement of analytic derivatives with finite differences (including \\( \boldsymbol\tau \\) near the poles) | About \\( 10^{-6} \\) |
+| Convergence | For actual PAOs, difference between the default wave-number grid and a finer grid (or direct integration in real space) | \\( 10^{-6} \\) |
+| Comparison | For actual PAOs (e.g. C6.0, O6.0, Fe6.0S), compare with the output of the existing implementation (overlap matrix in scfout, etc.) at several \\( \boldsymbol\tau \\) | \\( 10^{-6} \\) (allowing for differences in quadrature; the random contribution \\( 10^{-13} \\) is negligible) |
 
-> **検算**：解析解との照合は `tools/check_two_center.py`（上記）、実際の PAO での既定格子の精度は
-> `tools/check_pao_file.py`（PAO ファイルのパスを引数に与える）で確認しています。
+> **Check**: comparison with analytic solutions is done with `tools/check_two_center.py` (above), and the accuracy of the default grid for actual PAOs with
+> `tools/check_pao_file.py` (given the path of a PAO file as an argument).

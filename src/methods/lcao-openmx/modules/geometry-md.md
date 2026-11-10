@@ -1,158 +1,158 @@
-# 構造最適化・分子動力学・NEB
+# Geometry optimization, molecular dynamics, and NEB
 
-> 状態：初版（レビュー待ち）。`MD.Type` のすべての選択肢（構造最適化、格子の最適化、分子動力学、NEB）について、
-> 公開資料（マニュアル 17–20・51 節、技術ノート 7「Geometry Optimization」、NEB の技術ノート、標準的な論文）の式を
-> このノートの記法で書き直し、公開資料にない規約・既定値を既存実装から確認して加えたものです。
-> 数値で確かめた部分は `tools/check_geometry_md.py` にあります。
+> Status: first draft (awaiting review). For every option of `MD.Type` (geometry optimization, lattice optimization, molecular dynamics, NEB),
+> this chapter rewrites the equations of the public documents (manual sections 17–20 and 51, technical note 7 "Geometry Optimization", the NEB technical note, standard papers)
+> in the notation of this note, and adds conventions and defaults absent from the public documents, as confirmed from the existing implementation.
+> The parts checked numerically are in `tools/check_geometry_md.py`.
 
-## この章の範囲
+## Scope of this chapter
 
-- SCF が収束して力（と応力）が求まった後に、原子座標・格子ベクトル・速度を次のステップへ進める部分を扱います。
-- 力と応力の定義・符号は [全エネルギーと力](energy-force.md)、次のステップの SCF の初期密度（外挿）は
-  [密度行列と電荷ミキシング](density-mixing.md) の 6・7 節、格子の原点は [実空間グリッド](grid-poisson-xc.md) の 1.4 節にあります。
-  この章ではそれらへの入口だけを書きます。
-- `MD.Type` の値ごとに、何を変数にし、どの式で更新し、何を出力するかを定めます。
-  再実装の目標は「同じ入力で、同じ構造に収束する」「同じ統計集団の軌跡を生成する」ことで、
-  既存実装とステップごとに一致させることは、明記した場合（照合用の互換モード）に限ります。
+- This chapter covers the part that, after the SCF has converged and the forces (and stress) have been obtained, advances the atomic coordinates, lattice vectors, and velocities to the next step.
+- The definitions and signs of forces and stress are in [Total energy and forces](energy-force.md), the initial density (extrapolation) for the SCF of the next step is in
+  sections 6 and 7 of [Density matrix and charge mixing](density-mixing.md), and the grid origin is in section 1.4 of [Real-space grid](grid-poisson-xc.md).
+  This chapter only gives entry points to them.
+- For each value of `MD.Type`, it specifies what the variables are, by which equations they are updated, and what is output.
+  The goal of a reimplementation is "to converge to the same structure for the same input" and "to generate trajectories of the same statistical ensemble";
+  step-by-step agreement with the existing implementation is required only where explicitly stated (compatibility mode for comparison).
 
-## 記号〔設計〕
+## Notation [Design]
 
-[記法](../../../conventions/notation.md) の記号に加えて、次を使います。内部単位は原子単位（bohr、Hartree、電子質量 \\( m\_e \\)、
-時間の単位 \\( \hbar/E\_h \\)）です。
+In addition to the symbols of [Notation](../../../conventions/notation.md), the following are used. Internal units are atomic units (bohr, Hartree, electron mass \\( m\_e \\),
+time unit \\( \hbar/E\_h \\)).
 
-| 記号 | 意味 |
+| Symbol | Meaning |
 |---|---|
-| \\( N \\) | 原子数（単位胞内） |
-| \\( \mathbf R\_I \\)、\\( \mathbf x \in \mathbb R^{3N} \\) | 原子 \\( I \\) の位置と、全原子の座標を並べたベクトル |
-| \\( U \\) | 全エネルギー `Utot`（[全エネルギーと力](energy-force.md)） |
-| \\( \mathbf g = \partial U/\partial\mathbf x \\)、\\( \mathbf F = -\mathbf g \\) | 勾配と力（Hartree/bohr） |
-| \\( m\_I \\) | 原子 \\( I \\) の質量（内部では \\( m\_e \\) 単位） |
-| \\( \mathbf v\_I \\)、\\( K = \sum\_I \tfrac12 m\_I \lvert\mathbf v\_I\rvert^2 \\) | 速度と原子核の運動エネルギー `Ukc` |
-| \\( \Delta t \\)、\\( n \\) | 時間刻みと、ステップ番号（1 始まり。再開時は通算） |
-| \\( A \\) | 格子ベクトルを **行** とする 3×3 行列（\\( A\_{ij} \\) は \\( \mathbf a\_i \\) の \\( j \\) 成分） |
-| \\( \Omega = \det A \\) | 単位胞の体積 |
-| \\( \boldsymbol\sigma\_i \\)、\\( S \\) | \\( \boldsymbol\sigma\_1 = \mathbf a\_2\times\mathbf a\_3 \\) など（巡回）。これを行とする行列 \\( S = \Omega A^{-\mathsf T} \\) |
-| \\( \mathbf s\_I \\) | 分数座標 \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\)（\\( \mathbf O \\) は格子の原点） |
-| \\( \Sigma\_{\gamma\eta} \\) | [全エネルギーと力](energy-force.md) の応力（\\( \Sigma/\Omega \\) が出力される応力テンソル。引っ張られた状態で対角が正） |
-| \\( k\_B \\)、\\( T \\)、\\( T\_0 \\) | Boltzmann 定数、運動学的温度、目標温度 |
-| \\( \zeta \\)、\\( \eta \\)、\\( Q \\) | Nosé–Hoover の摩擦係数、その時間積分（熱浴の座標）、熱浴の質量 |
-| \\( W \\)、\\( P \\) | バロスタットの質量と外圧 |
+| \\( N \\) | Number of atoms (in the unit cell) |
+| \\( \mathbf R\_I \\), \\( \mathbf x \in \mathbb R^{3N} \\) | Position of atom \\( I \\), and the vector concatenating the coordinates of all atoms |
+| \\( U \\) | Total energy `Utot` ([Total energy and forces](energy-force.md)) |
+| \\( \mathbf g = \partial U/\partial\mathbf x \\), \\( \mathbf F = -\mathbf g \\) | Gradient and force (Hartree/bohr) |
+| \\( m\_I \\) | Mass of atom \\( I \\) (internally in units of \\( m\_e \\)) |
+| \\( \mathbf v\_I \\), \\( K = \sum\_I \tfrac12 m\_I \lvert\mathbf v\_I\rvert^2 \\) | Velocity and nuclear kinetic energy `Ukc` |
+| \\( \Delta t \\), \\( n \\) | Time step and step number (1-based; cumulative across restarts) |
+| \\( A \\) | 3×3 matrix whose **rows** are the lattice vectors (\\( A\_{ij} \\) is the \\( j \\) component of \\( \mathbf a\_i \\)) |
+| \\( \Omega = \det A \\) | Unit-cell volume |
+| \\( \boldsymbol\sigma\_i \\), \\( S \\) | \\( \boldsymbol\sigma\_1 = \mathbf a\_2\times\mathbf a\_3 \\) etc. (cyclic). The matrix having these as rows is \\( S = \Omega A^{-\mathsf T} \\) |
+| \\( \mathbf s\_I \\) | Fractional coordinates \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\) (\\( \mathbf O \\) is the grid origin) |
+| \\( \Sigma\_{\gamma\eta} \\) | Stress of [Total energy and forces](energy-force.md) (\\( \Sigma/\Omega \\) is the output stress tensor; diagonal positive under tension) |
+| \\( k\_B \\), \\( T \\), \\( T\_0 \\) | Boltzmann constant, kinetic temperature, target temperature |
+| \\( \zeta \\), \\( \eta \\), \\( Q \\) | Nosé–Hoover friction coefficient, its time integral (thermostat coordinate), thermostat mass |
+| \\( W \\), \\( P \\) | Barostat mass and external pressure |
 
-## 1. 全体の流れ〔公開〕〔規約〕
+## 1. Overall flow [Public] [Convention]
 
-〔公開〕マニュアル 18・20 節：構造最適化と MD は同じ入力ファイルで `MD.Type` を選び、ステップごとに
-SCF → 力 → 座標の更新 を繰り返します。
+[Public] Manual sections 18 and 20: geometry optimization and MD select `MD.Type` in the same input file and, at each step, repeat
+SCF → forces → coordinate update.
 
-〔規約〕1 ステップの処理は次の順です。
+[Convention] The processing of one step is in the following order.
 
-1. 現在の座標（と格子）で SCF を収束させ、`Utot`、力、必要なら応力を求める。
-2. `.md` ファイルに現在の座標・力（と、その時点で保持している速度）を 1 ブロック追記する（10 節）。
-3. 分子動力学では、力の総和を 0 にする補正をかける（下記）。
-4. `MD.Type` に応じて座標・格子・速度を更新し、`.ene` ファイルに 1 行追記する。
-5. 分子動力学（`NVE`、`NVT_*`、`NPT_*`）に限り、単位胞の外に出た原子を中に戻す（7 節）。構造最適化では戻しません。
-6. 現在の状態から再開用の入力ファイル `System.Name.dat#` を書き出す（10 節）。
+1. Converge the SCF at the current coordinates (and lattice), and obtain `Utot`, forces, and, if needed, the stress.
+2. Append one block with the current coordinates and forces (and the velocities held at that point) to the `.md` file (section 10).
+3. In molecular dynamics, apply the correction that makes the sum of forces zero (below).
+4. Update coordinates, lattice, and velocities according to `MD.Type`, and append one line to the `.ene` file.
+5. Only in molecular dynamics (`NVE`, `NVT_*`, `NPT_*`), move atoms that have left the unit cell back inside (section 7). Not done in geometry optimization.
+6. Write the restart input file `System.Name.dat#` from the current state (section 10).
 
-- ステップ番号は通算の \\( n = n\_{\mathrm{local}} + \\) `MD.Current.Iter` です（`MD.Current.Iter` は既定 0、再開ファイルが書き込む）。
-  繰り返しは、収束の判定が立つか \\( n \\) が `MD.maxIter`（既定 1）に達したところで終わります。
-  `MD.maxIter` は再開前のステップを含めた **通算** の上限です。
-- \\( n = \\) `MD.maxIter` のステップでは、収束していなくても座標を更新しません（最後の SCF の構造と力が対応したまま終わる）。
-- 分子動力学（`NVE`、`NVT_VS`、`NVT_VS2`、`NVT_VS4`、`NVT_NH`、`NVT_Langevin`）では、更新の前に、
-  固定されていない成分について、デカルト成分ごとに勾配の **単純平均**（質量で重みを付けない）を引きます：
-  \\( g\_{I\alpha} \leftarrow g\_{I\alpha} - \frac{1}{N\_\alpha}\sum\_{J\\,\text{free}} g\_{J\alpha} \\)（\\( N\_\alpha \\) は \\( \alpha \\) 成分が自由な原子の数）。
-  NPT と構造最適化ではこの補正をしません（[全エネルギーと力](energy-force.md) の「符号と単位」と同じ内容）。
-- 2 ステップ目以降の SCF は、前のステップの密度から再開し、密度を外挿します（[密度行列と電荷ミキシング](density-mixing.md) の 6・7 節）。
-  格子の原点 \\( \mathbf O \\) は最初のステップで一度決めたら変えません（[実空間グリッド](grid-poisson-xc.md) 1.4 節）。
+- The step number is the cumulative \\( n = n\_{\mathrm{local}} + \\) `MD.Current.Iter` (`MD.Current.Iter` defaults to 0 and is written by the restart file).
+  The iteration ends when the convergence criterion is met or \\( n \\) reaches `MD.maxIter` (default 1).
+  `MD.maxIter` is the upper bound on the **cumulative** number of steps including steps before the restart.
+- At the step with \\( n = \\) `MD.maxIter`, the coordinates are not updated even if not converged (the run ends with the structure and forces of the last SCF still corresponding).
+- In molecular dynamics (`NVE`, `NVT_VS`, `NVT_VS2`, `NVT_VS4`, `NVT_NH`, `NVT_Langevin`), before the update,
+  the **simple average** of the gradient (not mass-weighted) is subtracted per Cartesian component, over the unfixed components:
+  \\( g\_{I\alpha} \leftarrow g\_{I\alpha} - \frac{1}{N\_\alpha}\sum\_{J\\,\text{free}} g\_{J\alpha} \\) (\\( N\_\alpha \\) is the number of atoms whose \\( \alpha \\) component is free).
+  NPT and geometry optimization do not apply this correction (same content as "Signs and units" in [Total energy and forces](energy-force.md)).
+- From the second step on, the SCF restarts from the density of the previous step and extrapolates the density (sections 6 and 7 of [Density matrix and charge mixing](density-mixing.md)).
+  The grid origin \\( \mathbf O \\), once determined at the first step, is not changed ([Real-space grid](grid-poisson-xc.md) section 1.4).
 
-## 2. 単位と定数〔規約〕
+## 2. Units and constants [Convention]
 
-| 量 | 入力の単位 | 内部単位への換算 |
+| Quantity | Input unit | Conversion to internal units |
 |---|---|---|
-| 時間刻み `MD.TimeStep` | fs（既定 0.5、負なら入力エラー） | \\( 1\ \mathrm{fs} = 41.3411 \\) |
-| 質量（`Definition.of.Atomic.Species` の 4 列目） | 統一原子質量単位 | \\( 1\ \mathrm u = 1.660538921/0.000910938291\ m\_e \approx 1822.888\ m\_e \\) |
-| 速度（`MD.Init.Velocity`、`.md` の出力） | m/s | \\( 1\ \mathrm{m/s} = 0.4571028\times 10^{-6} \\) |
-| 圧力（`MD.applied.pressure`、`MD.CellPressureControl`） | GPa | \\( 1\ \mathrm{GPa} = 0.3398827\times 10^{-4}\ \mathrm{Hartree/bohr^3} \\) |
-| 温度 | K | \\( k\_B = 8.617251324\times10^{-5}\ \mathrm{eV/K} \\)、\\( 1\ \mathrm{Hartree} = 27.2113845\ \mathrm{eV} \\) |
-| 長さ | Å または bohr | \\( 1\ \mathrm{bohr} = 0.529177249\ \text{Å} \\) |
+| Time step `MD.TimeStep` | fs (default 0.5; negative is an input error) | \\( 1\ \mathrm{fs} = 41.3411 \\) |
+| Mass (4th column of `Definition.of.Atomic.Species`) | unified atomic mass unit | \\( 1\ \mathrm u = 1.660538921/0.000910938291\ m\_e \approx 1822.888\ m\_e \\) |
+| Velocity (`MD.Init.Velocity`, `.md` output) | m/s | \\( 1\ \mathrm{m/s} = 0.4571028\times 10^{-6} \\) |
+| Pressure (`MD.applied.pressure`, `MD.CellPressureControl`) | GPa | \\( 1\ \mathrm{GPa} = 0.3398827\times 10^{-4}\ \mathrm{Hartree/bohr^3} \\) |
+| Temperature | K | \\( k\_B = 8.617251324\times10^{-5}\ \mathrm{eV/K} \\), \\( 1\ \mathrm{Hartree} = 27.2113845\ \mathrm{eV} \\) |
+| Length | Å or bohr | \\( 1\ \mathrm{bohr} = 0.529177249\ \text{Å} \\) |
 
-- GPa の換算係数は CODATA の値（\\( 3.39893\times10^{-5} \\)）と相対 \\( 3\times10^{-5} \\) ずれています。照合では既存実装の係数を使います。
-- 質量の既定値は、各元素で最も存在比の大きい同位体の原子質量です（例：H 1.00782503207、C 12.00、O 15.99491461956、Si 27.9769265325、Fe 55.9349375）。
-  〔公開〕マニュアル 20.9 節：`Definition.of.Atomic.Species` の 4 列目で上書きできます。
-- 〔規約〕温度の定義は 2 種類あり、場所によって使い分けられています。
-  - \\( T\_A = K/(\tfrac32 k\_B N) \\)：全原子数 \\( N \\) で割る。`.ene` の温度、熱浴の制御、NPT で使う。
-  - \\( T\_B = 2K/(k\_B N\_{\mathrm{free}}) \\)：\\( N\_{\mathrm{free}} \\) は固定されていない成分の数。
-    `NVE`、`NVT_VS`、`NVT_NH`、`NVT_VS2`、`NVT_Langevin` の `.md` の見出し行の温度に使う。
-  - どちらの場合も \\( K \\) は固定されていない成分だけで和を取ります（`NVT_VS` 系は全成分。6.4 節）。
+- The GPa conversion factor differs from the CODATA value (\\( 3.39893\times10^{-5} \\)) by a relative \\( 3\times10^{-5} \\). For comparison, use the factor of the existing implementation.
+- The default mass is the atomic mass of the most abundant isotope of each element (e.g. H 1.00782503207, C 12.00, O 15.99491461956, Si 27.9769265325, Fe 55.9349375).
+  [Public] Manual section 20.9: it can be overridden by the 4th column of `Definition.of.Atomic.Species`.
+- [Convention] There are two definitions of temperature, used in different places.
+  - \\( T\_A = K/(\tfrac32 k\_B N) \\): divides by the total number of atoms \\( N \\). Used for the `.ene` temperature, thermostat control, and NPT.
+  - \\( T\_B = 2K/(k\_B N\_{\mathrm{free}}) \\): \\( N\_{\mathrm{free}} \\) is the number of unfixed components.
+    Used for the temperature in the `.md` header line of `NVE`, `NVT_VS`, `NVT_NH`, `NVT_VS2`, `NVT_Langevin`.
+  - In both cases \\( K \\) is summed only over unfixed components (all components for the `NVT_VS` family; section 6.4).
 
-## 3. `MD.Type` の一覧〔公開〕〔規約〕
+## 3. List of `MD.Type` [Public] [Convention]
 
-〔公開〕マニュアル 18–20・51 節。既定値は `NOMD` です〔規約〕。
+[Public] Manual sections 18–20 and 51. The default is `NOMD` [Convention].
 
-| 値 | 種類 | 変数 | 方法 | 節 |
+| Value | Kind | Variables | Method | Section |
 |---|---|---|---|---|
-| `NOMD` | 1 回の SCF | — | 座標を動かさない。`.ene` に 1 行、`.out` に座標と力を書いて終わる | — |
-| `Opt` | 構造最適化 | 原子座標 | 最急降下（可変の前因子） | 4.2 |
-| `DIIS` | 〃 | 〃 | GDIIS ＋ 単位行列の Hessian | 4.4 |
-| `BFGS` | 〃 | 〃 | GDIIS ＋ BFGS の逆 Hessian | 4.5 |
-| `RF` | 〃 | 〃 | GDIIS ＋ BFGS の Hessian ＋ 有理関数（RF）ステップ | 4.6 |
-| `EF` | 〃 | 〃 | GDIIS ＋ BFGS の Hessian ＋ 固有値の下限処理 | 4.7 |
-| `OptC1`–`OptC4` | 格子の最適化 | 格子（分数座標は固定） | 最急降下 | 5.2 |
-| `OptC5`–`OptC7` | 〃 | 格子と原子座標 | 最急降下 | 5.2 |
-| `RFC5`–`RFC7` | 〃 | 格子と分数座標 | GDIIS ＋ BFGS ＋ RF | 5.3 |
-| `EvsLC` | エネルギー対格子定数 | 格子 | 一定の刻みで格子を伸縮 | 5.5 |
-| `DF` | デルタ因子用 | 体積 | 7 点の体積で計算 | 5.5 |
-| `NVE` | 分子動力学 | 座標・速度 | 速度 Verlet | 6.2 |
-| `NVT_VS`、`NVT_VS2`、`NVT_VS4` | 〃 | 〃 | 速度スケーリング（全体・原子ごと・原子群ごと） | 6.4 |
-| `NVT_NH` | 〃 | 〃 | Nosé–Hoover | 6.5 |
-| `NVT_Langevin` | 〃 | 〃 | Langevin 熱浴 | 6.6 |
-| `NPT_VS_PR`、`NPT_VS_WV`、`NPT_NH_PR`、`NPT_NH_WV` | 〃 | 座標・速度・格子 | 速度スケーリング／Nosé–Hoover と、Parrinello–Rahman／Wentzcovitch | 6.7 |
-| `NEB` | 反応経路 | 全像の座標 | nudged elastic band ＋ DIIS・BFGS | 8 |
+| `NOMD` | single SCF | — | Coordinates are not moved. Writes one line to `.ene` and coordinates and forces to `.out`, then ends | — |
+| `Opt` | geometry optimization | atomic coordinates | steepest descent (variable prefactor) | 4.2 |
+| `DIIS` | ditto | ditto | GDIIS + identity Hessian | 4.4 |
+| `BFGS` | ditto | ditto | GDIIS + BFGS inverse Hessian | 4.5 |
+| `RF` | ditto | ditto | GDIIS + BFGS Hessian + rational function (RF) step | 4.6 |
+| `EF` | ditto | ditto | GDIIS + BFGS Hessian + eigenvalue lower bound | 4.7 |
+| `OptC1`–`OptC4` | lattice optimization | lattice (fractional coordinates fixed) | steepest descent | 5.2 |
+| `OptC5`–`OptC7` | ditto | lattice and atomic coordinates | steepest descent | 5.2 |
+| `RFC5`–`RFC7` | ditto | lattice and fractional coordinates | GDIIS + BFGS + RF | 5.3 |
+| `EvsLC` | energy vs. lattice constant | lattice | scale the lattice by a fixed increment | 5.5 |
+| `DF` | for the delta factor | volume | compute at 7 volumes | 5.5 |
+| `NVE` | molecular dynamics | coordinates, velocities | velocity Verlet | 6.2 |
+| `NVT_VS`, `NVT_VS2`, `NVT_VS4` | ditto | ditto | velocity scaling (global, per atom, per atom group) | 6.4 |
+| `NVT_NH` | ditto | ditto | Nosé–Hoover | 6.5 |
+| `NVT_Langevin` | ditto | ditto | Langevin thermostat | 6.6 |
+| `NPT_VS_PR`, `NPT_VS_WV`, `NPT_NH_PR`, `NPT_NH_WV` | ditto | coordinates, velocities, lattice | velocity scaling / Nosé–Hoover with Parrinello–Rahman / Wentzcovitch | 6.7 |
+| `NEB` | reaction path | coordinates of all images | nudged elastic band + DIIS/BFGS | 8 |
 
-〔規約〕その他の扱い：
+[Convention] Other handling:
 
-- `RFC1`–`RFC4` は受け付けるが「対応していない」と表示して終了します。
-- `Constraint_DIIS`、`Opt_LBFGS` は受け付けますが、更新を何もしません（`MD.maxIter` まで同じ構造で SCF を繰り返す）。
-  再実装では入力エラーにしてよい〔設計〕。
-- `MD.Opt.DIIS.History` が 19 を超えると終了します。
+- `RFC1`–`RFC4` are accepted, but the program prints "not supported" and exits.
+- `Constraint_DIIS` and `Opt_LBFGS` are accepted but perform no update at all (the SCF is repeated on the same structure up to `MD.maxIter`).
+  A reimplementation may treat them as input errors [Design].
+- The program exits if `MD.Opt.DIIS.History` exceeds 19.
 
-## 4. 構造最適化（原子座標）
+## 4. Geometry optimization (atomic coordinates)
 
-### 4.1 収束判定と最大変位〔公開〕〔規約〕
+### 4.1 Convergence criterion and maximum displacement [Public] [Convention]
 
-〔公開〕マニュアル 18.2 節：`MD.Opt.criterion`（既定 0.0003 Hartree/bohr）を、原子に働く力の最大値と比べます。
+[Public] Manual section 18.2: `MD.Opt.criterion` (default 0.0003 Hartree/bohr) is compared with the maximum force acting on the atoms.
 
-〔規約〕「力の最大値」の取り方が方式によって違います。固定された成分（4.10 節）は除きます。
+[Convention] How the "maximum force" is taken differs between methods. Fixed components (section 4.10) are excluded.
 
-| 方式 | 比べる量 |
+| Method | Quantity compared |
 |---|---|
-| `Opt`（最急降下） | 原子ごとのベクトルの大きさの最大 \\( \max\_I \lVert\mathbf g\_I\rVert \\) |
-| `DIIS`、`BFGS`、`RF`、`EF` | 成分ごとの絶対値の最大 \\( \max\_{I\alpha}\lvert g\_{I\alpha}\rvert \\) |
+| `Opt` (steepest descent) | maximum of per-atom vector magnitudes \\( \max\_I \lVert\mathbf g\_I\rVert \\) |
+| `DIIS`, `BFGS`, `RF`, `EF` | maximum of per-component absolute values \\( \max\_{I\alpha}\lvert g\_{I\alpha}\rvert \\) |
 
-- 判定は、そのステップの SCF の後の勾配で行い、満たせばそのステップでは座標を更新せずに終わります。
-- 1 ステップの最大変位：準 Newton 系では、更新量の成分ごとの最大 \\( \max\_{I\alpha}\lvert\Delta x\_{I\alpha}\rvert \\) が
-  \\( d\_{\max} = 0.5 \\) bohr を超えたら、更新ベクトル全体を \\( d\_{\max}/\max\lvert\Delta x\rvert \\) 倍に縮めます（向きは保つ）。
-  最急降下では \\( s\max\_I\lVert\mathbf g\_I\rVert \\)（下記）が 0.5 bohr を超えたら同様に縮めます。
-- 〔規約〕GDIIS の 1 次方程式が解けない（係数行列が特異）場合、既存実装は **収束したものとして** 終了します。
-  再実装では、履歴を捨てて最急降下に戻すか、エラーとして報告します〔設計〕。
+- The test is made with the gradient after the SCF of that step; if satisfied, the run ends without updating the coordinates at that step.
+- Maximum displacement per step: in the quasi-Newton family, if the per-component maximum of the update \\( \max\_{I\alpha}\lvert\Delta x\_{I\alpha}\rvert \\)
+  exceeds \\( d\_{\max} = 0.5 \\) bohr, the whole update vector is scaled by \\( d\_{\max}/\max\lvert\Delta x\rvert \\) (direction preserved).
+  In steepest descent, it is scaled in the same way if \\( s\max\_I\lVert\mathbf g\_I\rVert \\) (below) exceeds 0.5 bohr.
+- [Convention] If the GDIIS linear equation cannot be solved (singular coefficient matrix), the existing implementation exits **as if converged**.
+  A reimplementation discards the history and falls back to steepest descent, or reports an error [Design].
 
-### 4.2 最急降下法（`Opt`）〔公開〕〔規約〕
+### 4.2 Steepest descent (`Opt`) [Public] [Convention]
 
-〔公開〕マニュアル 18.1 節：前因子が収束の様子に応じて変わる最急降下法です。
+[Public] Manual section 18.1: steepest descent whose prefactor changes according to the convergence behavior.
 
-〔規約〕更新は \\( \mathbf x\_{n+1} = \mathbf x\_n - c\\, s\_n\\, \mathbf g\_n \\) で、\\( c \\) は 4.1 節の最大変位の縮小率です。前因子 \\( s \\)（bohr²/Hartree）は次のとおりです。
+[Convention] The update is \\( \mathbf x\_{n+1} = \mathbf x\_n - c\\, s\_n\\, \mathbf g\_n \\), where \\( c \\) is the reduction factor for the maximum displacement of section 4.1. The prefactor \\( s \\) (bohr²/Hartree) is as follows.
 
-- 基準値 \\( s\_0 = (2\ \mathrm{fs})^2/(1\ \mathrm u) = (82.6822)^2/1822.888 \approx 3.750 \\)。範囲を \\( [0.04 s\_0,\ 15 s\_0] \\) に制限します。
-- 最初のステップ（と、SD に切り替わった最初のステップ、4.8 節）：\\( s = 1/(1.5\times 0.529177249) \approx 1.260 \\)
-  （最大の力の原子がおよそ \\( \lVert\mathbf g\rVert \\) Å の 1/1.5 だけ動く値）。
-- 以後、各ステップの `Utot` を \\( U\_n \\) として
-  - \\( U\_n > U\_{n-1} \\) なら \\( s \leftarrow s/2 \\)。
-  - そうでなく、\\( U\_{n-1} < U\_{n-2} \\) かつ \\( U\_n < U\_{n-1} \\) で、\\( n \bmod 4 = 1 \\) なら \\( s \leftarrow 2.5 s \\)。
-  - 比較に使うエネルギーの履歴は 2 ステップ目から記録します（1 ステップ目の値は比較に入らない）。
+- Reference value \\( s\_0 = (2\ \mathrm{fs})^2/(1\ \mathrm u) = (82.6822)^2/1822.888 \approx 3.750 \\). The range is restricted to \\( [0.04 s\_0,\ 15 s\_0] \\).
+- At the first step (and at the first step after switching to SD, section 4.8): \\( s = 1/(1.5\times 0.529177249) \approx 1.260 \\)
+  (the value at which the atom with the largest force moves by about 1/1.5 of \\( \lVert\mathbf g\rVert \\) Å).
+- Thereafter, with \\( U\_n \\) the `Utot` of each step,
+  - if \\( U\_n > U\_{n-1} \\), then \\( s \leftarrow s/2 \\);
+  - otherwise, if \\( U\_{n-1} < U\_{n-2} \\) and \\( U\_n < U\_{n-1} \\), and \\( n \bmod 4 = 1 \\), then \\( s \leftarrow 2.5 s \\).
+  - The energy history used for the comparison is recorded from the second step (the value of the first step does not enter the comparison).
 
-### 4.3 GDIIS（共通部分）〔公開〕
+### 4.3 GDIIS (common part) [Public]
 
-〔公開〕技術ノート 7 の Eq. 6–10（Csaszar–Pulay の GDIIS、技術ノートでは RMM-DIIS と呼ぶ）。
-直近 \\( p \\) ステップの座標 \\( \mathbf x^{(m)} \\) と勾配 \\( \mathbf g^{(m)} \\) から、
-\\( \sum\_m c\_m = 1 \\) の条件の下で \\( \lVert\sum\_m c\_m\mathbf g^{(m)}\rVert^2 \\) を最小にする係数を求めます：
+[Public] Technical note 7, Eqs. 6–10 (the GDIIS of Csaszar–Pulay, called RMM-DIIS in the technical note).
+From the coordinates \\( \mathbf x^{(m)} \\) and gradients \\( \mathbf g^{(m)} \\) of the last \\( p \\) steps, find the coefficients
+that minimize \\( \lVert\sum\_m c\_m\mathbf g^{(m)}\rVert^2 \\) subject to \\( \sum\_m c\_m = 1 \\):
 
 $$
 \begin{pmatrix} B & \mathbf 1 \\\\ \mathbf 1^{\mathsf T} & 0 \end{pmatrix}
@@ -167,46 +167,46 @@ $$
 \mathbf x\_{n+1} = \tilde{\mathbf x} + \Delta\mathbf x(\tilde{\mathbf g})
 $$
 
-〔規約〕
+[Convention]
 
-- \\( p = \min(k, \\) `MD.Opt.DIIS.History`\\( ) \\)。\\( k \\) は準 Newton 段階に入ってからのステップ数（4.8 節）。`MD.Opt.DIIS.History` の既定は 2。
-  ただし、最急降下の段階の座標・勾配も履歴に入っています。
-- \\( B \\) はその要素の絶対値の最大で割ってから解きます（\\( \mathbf c \\) は変わらない）。対称不定値の直接法で解きます。
-- 固定された成分の勾配は 0 として履歴に入れます。
-- 閉じた形は \\( \mathbf c = B^{-1}\mathbf 1/(\mathbf 1^{\mathsf T}B^{-1}\mathbf 1) \\) です（`tools/check_geometry_md.py` で確認）。
+- \\( p = \min(k, \\) `MD.Opt.DIIS.History`\\( ) \\), where \\( k \\) is the number of steps since entering the quasi-Newton stage (section 4.8). The default of `MD.Opt.DIIS.History` is 2.
+  However, the coordinates and gradients of the steepest-descent stage are also in the history.
+- \\( B \\) is divided by the maximum absolute value of its elements before solving (\\( \mathbf c \\) is unchanged). It is solved with a direct method for symmetric indefinite matrices.
+- Gradients of fixed components are stored in the history as 0.
+- The closed form is \\( \mathbf c = B^{-1}\mathbf 1/(\mathbf 1^{\mathsf T}B^{-1}\mathbf 1) \\) (checked in `tools/check_geometry_md.py`).
 
-### 4.4 `DIIS`〔公開〕〔規約〕
+### 4.4 `DIIS` [Public] [Convention]
 
-〔公開〕技術ノート 7 Eq. 11：Hessian を単位行列で近似し \\( \mathbf x\_{n+1} = \tilde{\mathbf x} - \alpha\tilde{\mathbf g} \\)。
+[Public] Technical note 7, Eq. 11: the Hessian is approximated by the identity, \\( \mathbf x\_{n+1} = \tilde{\mathbf x} - \alpha\tilde{\mathbf g} \\).
 
-〔規約〕\\( \alpha \\)（bohr²/Hartree）は \\( r = \lVert\tilde{\mathbf g}\rVert/N \\)（3N 次元の Euclid ノルムを原子数で割る）で決めます。
+[Convention] \\( \alpha \\) (bohr²/Hartree) is determined by \\( r = \lVert\tilde{\mathbf g}\rVert/N \\) (the 3N-dimensional Euclidean norm divided by the number of atoms).
 
 | \\( r \\) | \\( > 10^{-2} \\) | \\( (10^{-3}, 10^{-2}] \\) | \\( (10^{-4}, 10^{-3}] \\) | \\( (10^{-5}, 10^{-4}] \\) | \\( (10^{-6}, 10^{-5}] \\) | \\( \le 10^{-6} \\) |
 |---|---|---|---|---|---|---|
 | \\( \alpha \\) | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 |
 
-### 4.5 `BFGS`〔公開〕〔規約〕
+### 4.5 `BFGS` [Public] [Convention]
 
-〔公開〕技術ノート 7 Eq. 12–14：逆 Hessian \\( H^{-1} \\) を BFGS で更新し、\\( \mathbf x\_{n+1} = \tilde{\mathbf x} - H^{-1}\tilde{\mathbf g} \\)。
-\\( \Delta\mathbf x = \mathbf x^{(n)} - \mathbf x^{(n-1)} \\)、\\( \Delta\mathbf g = \mathbf g^{(n)} - \mathbf g^{(n-1)} \\)（生の履歴の差。GDIIS の平均ではない）として
+[Public] Technical note 7, Eqs. 12–14: the inverse Hessian \\( H^{-1} \\) is updated by BFGS, and \\( \mathbf x\_{n+1} = \tilde{\mathbf x} - H^{-1}\tilde{\mathbf g} \\).
+With \\( \Delta\mathbf x = \mathbf x^{(n)} - \mathbf x^{(n-1)} \\), \\( \Delta\mathbf g = \mathbf g^{(n)} - \mathbf g^{(n-1)} \\) (differences of the raw history, not of the GDIIS averages),
 
 $$
 H^{-1}\_{\mathrm{new}} = H^{-1} + \frac{\Delta\mathbf x\cdot\Delta\mathbf g + \Delta\mathbf g\cdot H^{-1}\Delta\mathbf g}{(\Delta\mathbf x\cdot\Delta\mathbf g)^2}\\, \Delta\mathbf x\\,\Delta\mathbf x^{\mathsf T}
 {}- \frac{H^{-1}\Delta\mathbf g\\,\Delta\mathbf x^{\mathsf T} + \Delta\mathbf x\\,\Delta\mathbf g^{\mathsf T}H^{-1}}{\Delta\mathbf x\cdot\Delta\mathbf g}
 $$
 
-〔規約〕準 Newton 段階の最初のステップで \\( H^{-1} = I \\)（単位は bohr²/Hartree）とし、以後毎ステップ更新します。
-\\( \Delta\mathbf x\cdot\Delta\mathbf g \le 0 \\) でも更新を止めません。`MD.Opt.Init.Hessian` は使いません（マニュアル 18.3 節も、モデル Hessian は BFGS・DIIS では使えないとしています）。
+[Convention] At the first step of the quasi-Newton stage, \\( H^{-1} = I \\) (in units of bohr²/Hartree), and it is updated at every subsequent step.
+The update is not stopped even when \\( \Delta\mathbf x\cdot\Delta\mathbf g \le 0 \\). `MD.Opt.Init.Hessian` is not used (manual section 18.3 also states that the model Hessian cannot be used with BFGS or DIIS).
 
-### 4.6 `RF`〔公開〕〔規約〕
+### 4.6 `RF` [Public] [Convention]
 
-〔公開〕技術ノート 7 Eq. 15–19（Banerjee ら、Baker の有理関数法）：Hessian \\( H \\) を BFGS で直接更新し
+[Public] Technical note 7, Eqs. 15–19 (the rational function method of Banerjee et al. and Baker): the Hessian \\( H \\) is updated directly by BFGS,
 
 $$
 H\_{\mathrm{new}} = H + \frac{\Delta\mathbf g\\,\Delta\mathbf g^{\mathsf T}}{\Delta\mathbf x\cdot\Delta\mathbf g} - \frac{H\Delta\mathbf x\\,(H\Delta\mathbf x)^{\mathsf T}}{\Delta\mathbf x\cdot H\Delta\mathbf x}
 $$
 
-拡大 Hessian の最小固有値 \\( \lambda \\) とその固有ベクトルから更新量を得ます：
+and the update is obtained from the lowest eigenvalue \\( \lambda \\) of the augmented Hessian and its eigenvector:
 
 $$
 \begin{pmatrix} H & \tilde{\mathbf g} \\\\ \tilde{\mathbf g}^{\mathsf T} & 0\end{pmatrix}
@@ -214,61 +214,61 @@ $$
 \mathbf x\_{n+1} = \tilde{\mathbf x} + \Delta\mathbf x
 $$
 
-同値な形は \\( \Delta\mathbf x = -(H - \lambda I)^{-1}\tilde{\mathbf g} \\)、\\( \lambda = \tilde{\mathbf g}\cdot\Delta\mathbf x < \lambda\_{\min}(H) \\) です（`tools/check_geometry_md.py`）。
-固有ベクトルは最後の成分で割って規格化します。
+An equivalent form is \\( \Delta\mathbf x = -(H - \lambda I)^{-1}\tilde{\mathbf g} \\), \\( \lambda = \tilde{\mathbf g}\cdot\Delta\mathbf x < \lambda\_{\min}(H) \\) (`tools/check_geometry_md.py`).
+The eigenvector is normalized by dividing by its last component.
 
-〔規約〕
+[Convention]
 
-- 初期 Hessian（4.9 節）は、準 Newton 段階の 1, 31, 61, … ステップ目（\\( k \bmod 30 = 1 \\)）に作り直します。
-- BFGS の分母 \\( \Delta\mathbf x\cdot\Delta\mathbf g \\) と \\( \Delta\mathbf x\cdot H\Delta\mathbf x \\) は、\\( 10^{-10} \\) より小さければ \\( 10^{-10} \\) に置き換えて **更新を続けます**。
-  曲率条件が破れた（\\( \Delta\mathbf x\cdot\Delta\mathbf g < 0 \\)）ステップでは、Hessian に大きな正の項 \\( 10^{10}\\,\Delta\mathbf g\Delta\mathbf g^{\mathsf T} \\) が入ります。
-  マニュアル 18.2 節の「内積が負なら更新しない」という説明とは異なります。再実装では更新を飛ばす方を既定にします〔設計〕。
+- The initial Hessian (section 4.9) is rebuilt at steps 1, 31, 61, … of the quasi-Newton stage (\\( k \bmod 30 = 1 \\)).
+- The BFGS denominators \\( \Delta\mathbf x\cdot\Delta\mathbf g \\) and \\( \Delta\mathbf x\cdot H\Delta\mathbf x \\), if smaller than \\( 10^{-10} \\), are replaced by \\( 10^{-10} \\) and **the update continues**.
+  At steps where the curvature condition is violated (\\( \Delta\mathbf x\cdot\Delta\mathbf g < 0 \\)), a large positive term \\( 10^{10}\\,\Delta\mathbf g\Delta\mathbf g^{\mathsf T} \\) enters the Hessian.
+  This differs from the description in manual section 18.2, "no update if the inner product is negative". A reimplementation makes skipping the update the default [Design].
 
-### 4.7 `EF`〔公開〕〔規約〕
+### 4.7 `EF` [Public] [Convention]
 
-〔公開〕技術ノート 7 Eq. 20–21（Baker の固有ベクトル追跡法を最小化に使う形）：BFGS で更新した \\( H \\) を対角化し、
-固有値を正にそろえてから \\( H'^{-1} \\) を作り、\\( \mathbf x\_{n+1} = \tilde{\mathbf x} - f\\, H'^{-1}\tilde{\mathbf g} \\) とします。
+[Public] Technical note 7, Eqs. 20–21 (Baker's eigenvector-following method used for minimization): the BFGS-updated \\( H \\) is diagonalized,
+its eigenvalues are made positive, \\( H'^{-1} \\) is built, and \\( \mathbf x\_{n+1} = \tilde{\mathbf x} - f\\, H'^{-1}\tilde{\mathbf g} \\).
 
-〔規約〕
+[Convention]
 
-- 初期 Hessian（4.9 節）は準 Newton 段階の最初のステップでだけ作ります。
-- BFGS の更新は \\( \Delta\mathbf x\cdot\Delta\mathbf g > 0 \\) のときだけ行います。
-- 固有値の下限：\\( N \le 4 \\) なら 0.10、それ以外は 0.005 Hartree/bohr² より小さい固有値をその値に置き換えます
-  （技術ノート 7 は Ver. 3.3 の値として 0.02 を挙げていますが、現在の値はこれです）。
-- 前因子 \\( f \\)：準 Newton 段階の最初のステップで \\( f = 2.0 \\) とし、以後 `Utot` が前のステップより上がるたびに \\( f \leftarrow 0.95 f \\) とします。
+- The initial Hessian (section 4.9) is built only at the first step of the quasi-Newton stage.
+- The BFGS update is performed only when \\( \Delta\mathbf x\cdot\Delta\mathbf g > 0 \\).
+- Eigenvalue lower bound: eigenvalues smaller than 0.10 if \\( N \le 4 \\), otherwise 0.005 Hartree/bohr², are replaced by that value
+  (technical note 7 gives 0.02 as the value of Ver. 3.3, but these are the current values).
+- Prefactor \\( f \\): \\( f = 2.0 \\) at the first step of the quasi-Newton stage, and thereafter \\( f \leftarrow 0.95 f \\) each time `Utot` rises above that of the previous step.
 
-### 4.8 最急降下との切り替え〔公開〕〔規約〕
+### 4.8 Switching from steepest descent [Public] [Convention]
 
-〔公開〕マニュアル 18.2 節：`MD.Opt.StartDIIS` のステップまでは最急降下を使い、そこから準 Newton 法に切り替えます。
-鞍点への収束を避けるには、最急降下で変曲点を越えてから切り替えるよう、この値を大きくします。
+[Public] Manual section 18.2: steepest descent is used up to step `MD.Opt.StartDIIS`, and from there the method switches to quasi-Newton.
+To avoid convergence to a saddle point, increase this value so that the switch happens after steepest descent has passed the inflection point.
 
-〔規約〕
+[Convention]
 
-| キーワード | 既定値（既存実装） | マニュアルの記載 | 意味 |
+| Keyword | Default (existing implementation) | Stated in manual | Meaning |
 |---|---|---|---|
-| `MD.Opt.DIIS.History` | 2 | 3 | GDIIS の履歴の長さ \\( p \\) の上限 |
-| `MD.Opt.StartDIIS` | 1 | 5 | このステップから準 Newton 法 |
-| `MD.Opt.EveryDIIS` | 200000 | 200 | 一方の段階がこの回数続いたら、もう一方に切り替える |
+| `MD.Opt.DIIS.History` | 2 | 3 | upper bound on the GDIIS history length \\( p \\) |
+| `MD.Opt.StartDIIS` | 1 | 5 | quasi-Newton from this step |
+| `MD.Opt.EveryDIIS` | 200000 | 200 | when one stage has continued for this many steps, switch to the other |
 | `MD.Opt.criterion` | 0.0003 | 0.0003 | Hartree/bohr |
-| `MD.maxIter` | 1 | 1 | 通算のステップ数の上限 |
+| `MD.maxIter` | 1 | 1 | upper bound on the cumulative number of steps |
 
-- \\( n < \\) `MD.Opt.StartDIIS` の間は最急降下（4.2 節）。\\( n = \\) `MD.Opt.StartDIIS` で準 Newton 段階に入り、
-  段階内のステップ番号 \\( k \\) を 1 から数えます（GDIIS の履歴の長さ、Hessian の作り直しはこの \\( k \\) で決まる）。
-- 段階を切り替えたとき、最急降下の前因子は 4.2 節の初期値に戻ります。
-- マニュアルの既定値の記載（表の 3 列目）は既存実装と一致しません。再実装は既存実装の値を既定にします〔設計〕。
+- While \\( n < \\) `MD.Opt.StartDIIS`, steepest descent (section 4.2). At \\( n = \\) `MD.Opt.StartDIIS` the quasi-Newton stage is entered,
+  and the in-stage step number \\( k \\) is counted from 1 (the GDIIS history length and the Hessian rebuild are determined by this \\( k \\)).
+- When the stage is switched, the steepest-descent prefactor returns to the initial value of section 4.2.
+- The defaults stated in the manual (3rd column of the table) do not agree with the existing implementation. A reimplementation uses the values of the existing implementation as defaults [Design].
 
-### 4.9 初期 Hessian〔公開〕〔規約〕
+### 4.9 Initial Hessian [Public] [Convention]
 
-〔公開〕マニュアル 18.3 節：`MD.Opt.Init.Hessian` は `Schlegel`（既定）または `iden`。
-`Schlegel` は Schlegel のモデル（結合の伸縮・変角・ねじれ）のうち **結合の伸縮だけ** を使います。
-モデルの出典は H. B. Schlegel, Theor. Chim. Acta **66**, 333 (1984)、J. M. Wittbrodt and H. B. Schlegel, J. Mol. Struct. (Theochem) **398–399**, 55 (1997)。
+[Public] Manual section 18.3: `MD.Opt.Init.Hessian` is `Schlegel` (default) or `iden`.
+`Schlegel` uses **only the bond stretches** of Schlegel's model (bond stretch, bend, torsion).
+Sources of the model: H. B. Schlegel, Theor. Chim. Acta **66**, 333 (1984); J. M. Wittbrodt and H. B. Schlegel, J. Mol. Struct. (Theochem) **398–399**, 55 (1997).
 
-〔規約〕
+[Convention]
 
-- `iden`：\\( H = I \\)（Hartree/bohr²）。
-- `Schlegel`：\\( H = 0.1\\, I \\) に、原子対の寄与を加えます。原子 \\( I \\) とその近接原子 \\( (J, \mathbf L) \\)
-  （\\( \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \le r\_{c,I} + r\_{c,J} \\)、[疎ブロック形式](../design/sparse-block-format.md) の原子対の集合。\\( (J,\mathbf L) \ne (I, 0) \\)）について、
-  \\( r = \lVert\mathbf R\_I - \mathbf R\_J - \mathbf L\rVert \\)、\\( \mathbf u = (\mathbf R\_I - \mathbf R\_J - \mathbf L)/r \\)、
+- `iden`: \\( H = I \\) (Hartree/bohr²).
+- `Schlegel`: pair contributions are added to \\( H = 0.1\\, I \\). For atom \\( I \\) and its neighbors \\( (J, \mathbf L) \\)
+  (\\( \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \le r\_{c,I} + r\_{c,J} \\), the set of atom pairs of the [sparse block format](../design/sparse-block-format.md); \\( (J,\mathbf L) \ne (I, 0) \\)), with
+  \\( r = \lVert\mathbf R\_I - \mathbf R\_J - \mathbf L\rVert \\), \\( \mathbf u = (\mathbf R\_I - \mathbf R\_J - \mathbf L)/r \\),
 
 $$
 k\_{IJ} = \frac{1.734}{(r - B\_{p(I)p(J)})^3}\ \ (\text{Hartree/bohr}^2),\qquad
@@ -276,8 +276,8 @@ H\_{I\alpha,I\beta} \mathrel{+}= k\_{IJ} u\_\alpha u\_\beta,\qquad
 H\_{I\alpha,J\beta} \mathrel{+}= -k\_{IJ} u\_\alpha u\_\beta
 $$
 
-  （すべての順序対 \\( (I,J) \\) について加えるので、行列は対称になる）。\\( p(I) \\) は元素の周期で、H は 1、Z ≤ 10 は 2、Z ≤ 18 は 3、Z ≤ 36 は 4、Z ≤ 54 は 5、Z ≤ 86 は 6、Z ≤ 103 は 7、
-  希ガス（He、Ne、Ar、Kr、Xe、Rn）は 0 とします。\\( B \\)（bohr）は対称な表です。
+  (added for all ordered pairs \\( (I,J) \\), so the matrix is symmetric). \\( p(I) \\) is the period of the element: 1 for H, 2 for Z ≤ 10, 3 for Z ≤ 18, 4 for Z ≤ 36, 5 for Z ≤ 54, 6 for Z ≤ 86, 7 for Z ≤ 103,
+  and 0 for the noble gases (He, Ne, Ar, Kr, Xe, Rn). \\( B \\) (bohr) is a symmetric table.
 
 | \\( p \\) | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|---|
@@ -290,139 +290,139 @@ $$
 | 6 | | | | | | | 2.5200 | 2.7 |
 | 7 | | | | | | | | 2.9 |
 
-- 原子対の寄与は一様な並進 \\( \mathbf t \\) について \\( H\mathbf t = 0 \\) を満たし、0.1 の対角項だけが並進方向の曲率を与えます（`tools/check_geometry_md.py`）。
-  同じ原子の周期像との対（\\( J = I \\)、\\( \mathbf L \ne 0 \\)）の寄与は対角ブロックで打ち消して 0 になります。
-- 固定された成分（4.10 節）の行と列は 0 にし、対角を 1 にします。
-- 原子対の範囲が PAO のカットオフ半径の和で決まるため、遠い対（\\( r \\) が 10 bohr 以上）も小さな寄与を持ちます。
-  \\( r \le B \\) の対では \\( k \\) が負または発散します（通常の結合距離では起きない）。再実装では \\( r - B \\) に下限を設けます〔設計〕。
-- `FF` という第 3 の選択肢（Lennard-Jones 型の力場を力に当てはめて Hessian を作る）がありますが、公開資料に記載がなく、この章では扱いません（〔未確定〕）。
+- The pair contributions satisfy \\( H\mathbf t = 0 \\) for a uniform translation \\( \mathbf t \\); only the diagonal term 0.1 gives curvature along the translation directions (`tools/check_geometry_md.py`).
+  The contribution of a pair with a periodic image of the same atom (\\( J = I \\), \\( \mathbf L \ne 0 \\)) cancels to 0 in the diagonal block.
+- The rows and columns of fixed components (section 4.10) are set to 0 and the diagonal to 1.
+- Because the range of atom pairs is determined by the sum of PAO cutoff radii, distant pairs (\\( r \\) of 10 bohr or more) also have small contributions.
+  For pairs with \\( r \le B \\), \\( k \\) becomes negative or diverges (does not occur at ordinary bond lengths). A reimplementation puts a lower bound on \\( r - B \\) [Design].
+- There is a third option `FF` (builds the Hessian by fitting a Lennard-Jones-type force field to the forces), but it is not described in the public documents and is not treated in this chapter ([Open]).
 
-### 4.10 拘束 `MD.Fixed.XYZ`〔公開〕〔規約〕
+### 4.10 Constraints `MD.Fixed.XYZ` [Public] [Convention]
 
-〔公開〕マニュアル 18.4 節：ブロックの各行は「原子番号、x、y、z のフラグ」で、1 が固定、0 が自由。既定はすべて自由です。
-すべての構造最適化と MD で使えます。
+[Public] Manual section 18.4: each line of the block is "atom number, x, y, z flags", where 1 is fixed and 0 is free. The default is all free.
+Usable with all geometry optimizations and MD.
 
-〔規約〕
+[Convention]
 
-- 原子数ぶんの行を読みます（1 列目の番号は読み飛ばし、行の順で原子に割り当てる）。行が足りなければ入力エラーです。
-- 構造最適化：固定成分の勾配を 0 として扱い、座標を動かしません。最大の力・最大変位の判定から除きます。
-- MD：固定成分は位置を更新せず、速度を 0 に保ちます（ただし 6.1 節の例外）。
-- `RFC5`–`RFC7` では、フラグは **分数座標の成分**（\\( \mathbf a\_1,\mathbf a\_2,\mathbf a\_3 \\) 方向）に対する固定として働きます（5.3 節）。
+- As many lines as atoms are read (the number in the first column is skipped; lines are assigned to atoms in order). Too few lines is an input error.
+- Geometry optimization: the gradient of fixed components is treated as 0 and the coordinates are not moved. They are excluded from the maximum-force and maximum-displacement tests.
+- MD: fixed components do not have their positions updated, and their velocities are kept at 0 (except for the exception of section 6.1).
+- In `RFC5`–`RFC7`, the flags act as constraints on the **components of the fractional coordinates** (along \\( \mathbf a\_1,\mathbf a\_2,\mathbf a\_3 \\)) (section 5.3).
 
-### 4.11 再開〔公開〕〔規約〕
+### 4.11 Restart [Public] [Convention]
 
-〔公開〕マニュアル 17.3・18.5 節：各ステップで `System.Name.dat#`（最後の構造を入れた入力ファイル）が書かれ、
-近似 Hessian も毎ステップ保存されて、`System.Name.dat#` から再開すると自動的に引き継がれます。分割して実行しても反復回数は変わりません。
+[Public] Manual sections 17.3 and 18.5: at each step `System.Name.dat#` (an input file containing the last structure) is written,
+and the approximate Hessian is also saved at every step and taken over automatically when restarting from `System.Name.dat#`. The number of iterations does not change when the run is split.
 
-〔規約〕構造最適化（`Opt`、`DIIS`、`BFGS`、`RF`、`EF`）の `.dat#` には `geoopt.restart on` が加わります。
-`geoopt.restart on` のとき、最初のステップで `System.Name_rst/` に保存した最適化の状態（段階の別、段階内のステップ数、前因子、エネルギーの履歴、座標・勾配の履歴、Hessian）を読み込みます。
-保存形式はこのノートで自由に定めます〔設計〕。
+[Convention] For geometry optimization (`Opt`, `DIIS`, `BFGS`, `RF`, `EF`), `geoopt.restart on` is added to `.dat#`.
+When `geoopt.restart on`, the optimization state saved in `System.Name_rst/` (which stage, step count within the stage, prefactor, energy history, coordinate and gradient history, Hessian) is read at the first step.
+The storage format may be chosen freely in this note [Design].
 
-## 5. 格子の最適化
+## 5. Lattice optimization
 
-### 5.1 変数と勾配〔公開〕〔規約〕
+### 5.1 Variables and gradients [Public] [Convention]
 
-〔公開〕マニュアル 19 節：格子の最適化は共線スピン（＋U を含む）でだけ使え、DFT-D2・D3 とは併用できません。
-収束の判定は、原子座標または格子ベクトルに関するエネルギーの勾配の最大値と `MD.Opt.criterion` の比較です。
-マニュアル 19.4 節：`MD.applied.pressure`（GPa、既定 0）を与えると、エンタルピー \\( H = U + P\Omega \\) を最小にします。
+[Public] Manual section 19: lattice optimization is available only for collinear spin (including +U) and cannot be combined with DFT-D2/D3.
+Convergence is tested by comparing the maximum of the energy gradient with respect to atomic coordinates or lattice vectors with `MD.Opt.criterion`.
+Manual section 19.4: when `MD.applied.pressure` (GPa, default 0) is given, the enthalpy \\( H = U + P\Omega \\) is minimized.
 
-〔規約〕
+[Convention]
 
-- 格子ベクトルに関する勾配は [全エネルギーと力](energy-force.md) の式 \\( \partial U/\partial A\_{ij} = \sum\_k (A^{-1})\_{ki}\Sigma\_{kj} \\) です。
-- 格子の最適化では応力の計算が自動的に有効になり、加えた圧力が応力に入ります：
-  \\( \Sigma\_{\gamma\gamma} \mathrel{+}= P\Omega f\_\gamma \\)（\\( f\_\gamma \\) は `MD.applied.pressure.flag` の \\( \gamma \\) 番目、既定 `1 1 1`）。
-  エネルギーには \\( U\_{pV} = P\Omega \\)（フラグによらない）を加え、`Enpy` = `Utot` + `UpV` を出力します（[全エネルギーと力](energy-force.md) の `UpV` の〔未確定〕はこれで解消：格子の最適化でだけ応力に入る）。
-- 〔公開〕マニュアル 19.4 節：`MD.applied.pressure.flag` は、直方晶なら軸ごとに圧力をかけ、それ以外では他の 2 本の格子ベクトルに垂直な方向にかける、と説明されています。
-  既存実装は上のとおりデカルトの対角成分 \\( \Sigma\_{\gamma\gamma} \\) に足すので、この説明が正確なのは格子ベクトルが座標軸に沿う場合です。
-- 格子を動かすとき、分数座標 \\( \mathbf s\_I \\)（原点 \\( \mathbf O \\) からの）を保って \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\) で原子を動かします。
-- 格子の最適化の各ステップでは、原子対の集合（近接リスト）を作り直します（通常の構造最適化・MD と同じ扱い）。
+- The gradient with respect to the lattice vectors is the expression \\( \partial U/\partial A\_{ij} = \sum\_k (A^{-1})\_{ki}\Sigma\_{kj} \\) of [Total energy and forces](energy-force.md).
+- In lattice optimization the stress calculation is enabled automatically, and the applied pressure enters the stress:
+  \\( \Sigma\_{\gamma\gamma} \mathrel{+}= P\Omega f\_\gamma \\) (\\( f\_\gamma \\) is the \\( \gamma \\)-th entry of `MD.applied.pressure.flag`, default `1 1 1`).
+  \\( U\_{pV} = P\Omega \\) (independent of the flags) is added to the energy, and `Enpy` = `Utot` + `UpV` is output (this resolves the [Open] item on `UpV` in [Total energy and forces](energy-force.md): it enters the stress only in lattice optimization).
+- [Public] Manual section 19.4 explains that `MD.applied.pressure.flag` applies pressure per axis for an orthorhombic cell and, otherwise, in the direction perpendicular to the other two lattice vectors.
+  Since the existing implementation adds to the Cartesian diagonal components \\( \Sigma\_{\gamma\gamma} \\) as above, this explanation is exact only when the lattice vectors lie along the coordinate axes.
+- When the lattice is moved, atoms are moved by \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\), preserving the fractional coordinates \\( \mathbf s\_I \\) (measured from the origin \\( \mathbf O \\)).
+- At each step of lattice optimization, the set of atom pairs (neighbor list) is rebuilt (same handling as ordinary geometry optimization and MD).
 
-### 5.2 `OptC1`–`OptC7`（最急降下）〔公開〕〔規約〕
+### 5.2 `OptC1`–`OptC7` (steepest descent) [Public] [Convention]
 
-〔公開〕マニュアル 19.1 節の表：`OptC1` は格子に拘束なし・内部座標固定、`OptC2` は角度も固定し長さだけ、
-`OptC3` はさらに \\( \lvert\mathbf a\_1\rvert = \lvert\mathbf a\_2\rvert = \lvert\mathbf a\_3\rvert \\)、`OptC4` は \\( \lvert\mathbf a\_1\rvert = \lvert\mathbf a\_2\rvert \ne \lvert\mathbf a\_3\rvert \\)、
-`OptC5` は格子と内部座標を同時に、`OptC6` は \\( \mathbf a\_3 \\) 固定、`OptC7` は \\( \mathbf a\_2, \mathbf a\_3 \\) 固定。
+[Public] Table in manual section 19.1: `OptC1` has no constraint on the lattice and fixed internal coordinates; `OptC2` also fixes the angles and changes only the lengths;
+`OptC3` further imposes \\( \lvert\mathbf a\_1\rvert = \lvert\mathbf a\_2\rvert = \lvert\mathbf a\_3\rvert \\); `OptC4` imposes \\( \lvert\mathbf a\_1\rvert = \lvert\mathbf a\_2\rvert \ne \lvert\mathbf a\_3\rvert \\);
+`OptC5` optimizes the lattice and internal coordinates simultaneously; `OptC6` fixes \\( \mathbf a\_3 \\); `OptC7` fixes \\( \mathbf a\_2, \mathbf a\_3 \\).
 
-〔規約〕\\( D\_{ij} = \partial H/\partial A\_{ij} \\)（固定成分は 0）、\\( s \\) を前因子として：
+[Convention] With \\( D\_{ij} = \partial H/\partial A\_{ij} \\) (0 for fixed components) and \\( s \\) the prefactor:
 
-| 方式 | 収束判定の量 \\( G\_{\max} \\) | 更新 |
+| Method | Convergence quantity \\( G\_{\max} \\) | Update |
 |---|---|---|
-| `OptC1` | \\( \max\_{ij}\lvert D\_{ij}\rvert \\) | \\( A\_{ij} \leftarrow A\_{ij} - c s D\_{ij} \\)（自由な成分） |
-| `OptC2` | \\( \max\_i \lvert d\_i\rvert \\)、\\( d\_i = (\mathbf a\_i\cdot\mathbf D\_i)/\lVert\mathbf a\_i\rVert \\) | \\( \mathbf a\_i \leftarrow (1 - c s d\_i)\mathbf a\_i \\)（3 成分とも自由な \\( \mathbf a\_i \\) だけ） |
-| `OptC3` | 同上（固定フラグを見ない） | 同上の後、3 本の長さをその平均にそろえる |
-| `OptC4` | 同上 | 同上の後、\\( \mathbf a\_1, \mathbf a\_2 \\) の長さをその平均にそろえる |
-| `OptC5`–`OptC7` | \\( \max(\max\_{ij}\lvert D\_{ij}\rvert,\ \max\_{I\alpha}\lvert g\_{I\alpha}\rvert) \\) | 格子は `OptC1` と同じ。原子は新しい格子で \\( \mathbf s\_I \\) を保って動かした後、\\( \mathbf R\_I \leftarrow \mathbf R\_I - 0.2\\, c s\\, \mathbf g\_I \\) |
+| `OptC1` | \\( \max\_{ij}\lvert D\_{ij}\rvert \\) | \\( A\_{ij} \leftarrow A\_{ij} - c s D\_{ij} \\) (free components) |
+| `OptC2` | \\( \max\_i \lvert d\_i\rvert \\), \\( d\_i = (\mathbf a\_i\cdot\mathbf D\_i)/\lVert\mathbf a\_i\rVert \\) | \\( \mathbf a\_i \leftarrow (1 - c s d\_i)\mathbf a\_i \\) (only \\( \mathbf a\_i \\) with all 3 components free) |
+| `OptC3` | same as above (fixed flags are not consulted) | same as above, then the 3 lengths are set to their average |
+| `OptC4` | same as above | same as above, then the lengths of \\( \mathbf a\_1, \mathbf a\_2 \\) are set to their average |
+| `OptC5`–`OptC7` | \\( \max(\max\_{ij}\lvert D\_{ij}\rvert,\ \max\_{I\alpha}\lvert g\_{I\alpha}\rvert) \\) | Lattice as in `OptC1`. Atoms are moved with the new lattice preserving \\( \mathbf s\_I \\), then \\( \mathbf R\_I \leftarrow \mathbf R\_I - 0.2\\, c s\\, \mathbf g\_I \\) |
 
-- `OptC6`、`OptC7` は `OptC5` に \\( \mathbf a\_3 \\)（と \\( \mathbf a\_2 \\)）の全成分の固定を加えたものです。
-- 前因子 \\( s \\) は 4.2 節と同じ初期値・範囲ですが、エネルギーには \\( H = U + P\Omega \\) を使い、調整の規則が違います：
-  \\( H\_n > H\_{n-1} \\) かつ \\( n \bmod 3 = 1 \\) なら \\( s \leftarrow s/5 \\)、\\( H\_{n-1} < H\_{n-2} \\) かつ \\( H\_n < H\_{n-1} \\) で \\( n \bmod 4 = 1 \\) なら \\( s \leftarrow 2.5 s \\)。
-- \\( c \\) は \\( s G\_{\max} \\) が 0.5 を超えたときの縮小率 \\( 0.5/(sG\_{\max}) \\)（4.1 節と同じ考え方。格子の成分も bohr で比べる）。
-- `OptC2` の更新は \\( \mathbf a\_i \\) 方向の単位ベクトルではなく \\( \mathbf a\_i \\) 自身に \\( c s d\_i \\) を掛けた量だけ動かすので、
-  長さの変化は \\( c s d\_i\lVert\mathbf a\_i\rVert \\) です（次元が整合しないが、既存実装の規約）。
-- `OptC3`・`OptC4` で長さをそろえる操作は、初期構造が条件を満たしていなくても行われます（入力の検査はない）。
+- `OptC6` and `OptC7` are `OptC5` with all components of \\( \mathbf a\_3 \\) (and \\( \mathbf a\_2 \\)) additionally fixed.
+- The prefactor \\( s \\) has the same initial value and range as in section 4.2, but \\( H = U + P\Omega \\) is used as the energy and the adjustment rules differ:
+  if \\( H\_n > H\_{n-1} \\) and \\( n \bmod 3 = 1 \\), then \\( s \leftarrow s/5 \\); if \\( H\_{n-1} < H\_{n-2} \\) and \\( H\_n < H\_{n-1} \\) and \\( n \bmod 4 = 1 \\), then \\( s \leftarrow 2.5 s \\).
+- \\( c \\) is the reduction factor \\( 0.5/(sG\_{\max}) \\) applied when \\( s G\_{\max} \\) exceeds 0.5 (same idea as section 4.1; lattice components are also compared in bohr).
+- The `OptC2` update moves \\( \mathbf a\_i \\) by \\( \mathbf a\_i \\) itself multiplied by \\( c s d\_i \\), not by the unit vector along \\( \mathbf a\_i \\), so
+  the change in length is \\( c s d\_i\lVert\mathbf a\_i\rVert \\) (dimensionally inconsistent, but a convention of the existing implementation).
+- In `OptC3` and `OptC4`, the length-equalizing operation is performed even if the initial structure does not satisfy the condition (there is no input check).
 
-### 5.3 `RFC5`–`RFC7`〔公開〕〔規約〕
+### 5.3 `RFC5`–`RFC7` [Public] [Convention]
 
-〔公開〕マニュアル 19.1 節：格子と内部座標を同時に、RF と DIIS の混成法（Hessian は BFGS で更新）で最適化します。
-任意の拘束には `RFC5` と `MD.Fixed.Cell.Vectors` の組み合わせを勧めています。
+[Public] Manual section 19.1: the lattice and internal coordinates are optimized simultaneously by a hybrid of RF and DIIS (Hessian updated by BFGS).
+For arbitrary constraints, the manual recommends combining `RFC5` with `MD.Fixed.Cell.Vectors`.
 
-〔規約〕
+[Convention]
 
-- 変数は分数座標 \\( \mathbf s\_I \\)（\\( 3N \\) 個）と、動かす格子ベクトル（`RFC5` は 3 本、`RFC6` は \\( \mathbf a\_1,\mathbf a\_2 \\)、`RFC7` は \\( \mathbf a\_1 \\)）のデカルト成分です。
-  勾配は \\( \partial H/\partial s\_{Ii} = \sum\_\alpha g\_{I\alpha} A\_{i\alpha} \\) と \\( D\_{ij} \\) です。
-- 更新は 4.3 節の GDIIS と 4.6 節の RF ステップを、この変数の組に対して行います（BFGS の分母の扱いも 4.6 節と同じ）。
-  最大変位の判定は、更新後のデカルト座標と格子成分の変化の最大（bohr）で 0.5 と比べます。
-- 収束判定の量は \\( \max(\max\_{ij}\lvert D\_{ij}\rvert,\ \max\_{I\alpha}\lvert g\_{I\alpha}\rvert) \\) です（デカルトの勾配で判定する）。
-- 準 Newton 段階に入る前（4.8 節）は `OptC5` 型の最急降下を使います。
-- 初期 Hessian（準 Newton 段階の最初のステップでだけ作る）：
-  - `iden`：単位行列（\\( 3N + 9 \\) 次元）。
-  - `Schlegel`：原子の部分は対角 0.1、格子の部分は対角 0.05 から始め、4.9 節の原子対の寄与を加えた後、原子の部分を
-    分数座標に変換し（\\( H^{(s)}\_{Ii,Jj} = \sum\_{\alpha\beta} A\_{i\alpha}H\_{I\alpha,J\beta}A\_{j\beta} \\)）、
-    格子どうし・原子と格子の間の部分を、同じ結合伸縮のモデルをひずみで 2 回微分した量から作ります。
-    この交差項の詳細は収束の経路にしか影響しないので、この章では定めません（〔未確定〕）。
-- 固定された分数座標成分は、Hessian の行と列を 0 にし、対角を 200 にします。
-- `MD.Fixed.Cell.Vectors` で固定した格子成分は勾配を 0 にします。
+- The variables are the fractional coordinates \\( \mathbf s\_I \\) (\\( 3N \\) of them) and the Cartesian components of the lattice vectors that are moved (3 vectors for `RFC5`, \\( \mathbf a\_1,\mathbf a\_2 \\) for `RFC6`, \\( \mathbf a\_1 \\) for `RFC7`).
+  The gradients are \\( \partial H/\partial s\_{Ii} = \sum\_\alpha g\_{I\alpha} A\_{i\alpha} \\) and \\( D\_{ij} \\).
+- The update applies the GDIIS of section 4.3 and the RF step of section 4.6 to this set of variables (the treatment of the BFGS denominators is also the same as in section 4.6).
+  The maximum-displacement test compares the maximum change of the updated Cartesian coordinates and lattice components (bohr) with 0.5.
+- The convergence quantity is \\( \max(\max\_{ij}\lvert D\_{ij}\rvert,\ \max\_{I\alpha}\lvert g\_{I\alpha}\rvert) \\) (tested with the Cartesian gradient).
+- Before entering the quasi-Newton stage (section 4.8), `OptC5`-type steepest descent is used.
+- Initial Hessian (built only at the first step of the quasi-Newton stage):
+  - `iden`: identity matrix (dimension \\( 3N + 9 \\)).
+  - `Schlegel`: start with diagonal 0.1 for the atomic part and diagonal 0.05 for the lattice part, add the pair contributions of section 4.9, then transform the atomic part
+    to fractional coordinates (\\( H^{(s)}\_{Ii,Jj} = \sum\_{\alpha\beta} A\_{i\alpha}H\_{I\alpha,J\beta}A\_{j\beta} \\)),
+    and build the lattice-lattice and atom-lattice parts from the second derivative of the same bond-stretch model with respect to strain.
+    The details of these cross terms affect only the convergence path, so this chapter does not specify them ([Open]).
+- For fixed fractional-coordinate components, the Hessian rows and columns are set to 0 and the diagonal to 200.
+- Lattice components fixed by `MD.Fixed.Cell.Vectors` have their gradients set to 0.
 
-### 5.4 `MD.Fixed.Cell.Vectors`〔公開〕〔規約〕
+### 5.4 `MD.Fixed.Cell.Vectors` [Public] [Convention]
 
-〔公開〕マニュアル 19.3 節：3 行 3 列のフラグで、行 \\( i \\) が \\( \mathbf a\_i \\)、列が x、y、z 成分。1 が固定、0 が自由。
-`OptC1`、`OptC2`、`OptC5`、`RFC5` で使えます。
+[Public] Manual section 19.3: a 3×3 array of flags; row \\( i \\) is \\( \mathbf a\_i \\), columns are the x, y, z components. 1 is fixed, 0 is free.
+Usable with `OptC1`, `OptC2`, `OptC5`, `RFC5`.
 
-〔規約〕このブロックがあれば、`OptC6`・`OptC7`・`RFC6`・`RFC7` が決める固定より優先します。
-`OptC2`–`OptC4` では、ベクトル単位の更新なので、3 成分とも自由なベクトルだけが動きます（`OptC3`・`OptC4` の長さをそろえる操作はフラグを見ない）。
+[Convention] If this block is present, it takes precedence over the constraints determined by `OptC6`, `OptC7`, `RFC6`, `RFC7`.
+In `OptC2`–`OptC4`, since the update is per vector, only vectors with all 3 components free move (the length-equalizing operation of `OptC3` and `OptC4` does not consult the flags).
 
-### 5.5 `EvsLC` と `DF`〔規約〕
+### 5.5 `EvsLC` and `DF` [Convention]
 
-- `EvsLC`：各ステップの後、最初の格子 \\( A^{(0)} \\) を使って \\( \mathbf a\_i \leftarrow \mathbf a\_i \pm (\delta/100)\\,\mathbf a\_i^{(0)} \\) とします。
-  \\( \delta \\) は `MD.EvsLC.Step`（%、既定 0.4）、符号は `MD.EvsLC.flag`（3 個の整数、1 で伸ばす、−1 で縮める、0 で固定。既定 `1 1 1`）。
-  分数座標は保ちます。各ステップの格子ベクトル（Å）と `Utot` を `System.Name.EvsLC` に追記します。
-- `DF`（デルタ因子用）：`MD.maxIter` は 7 でなければ入力エラーです。ステップ 1 は入力の格子、ステップ 2–7 は
-  体積を 0.94、0.96、0.98、1.02、1.04、1.06 倍（格子を体積比の 1/3 乗で等方的に拡大縮小）した格子で計算し、
-  各ステップの原子あたり体積（Å³）と原子あたり `Utot`（eV）を `System.Name.DF` に追記します。
+- `EvsLC`: after each step, using the initial lattice \\( A^{(0)} \\), set \\( \mathbf a\_i \leftarrow \mathbf a\_i \pm (\delta/100)\\,\mathbf a\_i^{(0)} \\).
+  \\( \delta \\) is `MD.EvsLC.Step` (%, default 0.4); the sign is given by `MD.EvsLC.flag` (3 integers: 1 to expand, −1 to shrink, 0 to fix; default `1 1 1`).
+  Fractional coordinates are preserved. The lattice vectors (Å) and `Utot` of each step are appended to `System.Name.EvsLC`.
+- `DF` (for the delta factor): `MD.maxIter` must be 7, otherwise it is an input error. Step 1 uses the input lattice; steps 2–7 use lattices
+  with the volume scaled by 0.94, 0.96, 0.98, 1.02, 1.04, 1.06 (the lattice scaled isotropically by the 1/3 power of the volume ratio),
+  and the volume per atom (Å³) and `Utot` per atom (eV) of each step are appended to `System.Name.DF`.
 
-## 6. 分子動力学
+## 6. Molecular dynamics
 
-### 6.1 初速度〔公開〕〔規約〕
+### 6.1 Initial velocities [Public] [Convention]
 
-〔公開〕マニュアル 20.8 節：`MD.Init.Velocity` ブロックの各行は「原子番号、\\( v\_x, v\_y, v\_z \\)（m/s）」で、`MD.Fixed.XYZ` と併用できます。
+[Public] Manual section 20.8: each line of the `MD.Init.Velocity` block is "atom number, \\( v\_x, v\_y, v\_z \\) (m/s)"; it can be combined with `MD.Fixed.XYZ`.
 
-〔規約〕
+[Convention]
 
-- `MD.Init.Velocity` があれば、それを現在の速度とします（固定成分は 0 にする）。
-  `MD.Init.Velocity.Prev`（同じ形式）は 1 ステップ前（半ステップ）の速度で、再開ファイルが書き込みます。
-- どちらもなく、`MD.Type` が熱浴付き（`NVT_*`、`NPT_*`）なら、乱数で初速度を作ります：
-  1. 各原子に \\( \lVert\mathbf v\_I\rVert = \sqrt{3k\_BT\_1/m\_I} \\)（\\( T\_1 \\) は `MD.TempControl` の最初の行の温度）、向きは \\( [-\tfrac12,\tfrac12]^3 \\) の一様乱数ベクトルを規格化したもの。
-  2. 全運動量を 0 にする：\\( \mathbf v\_I \leftarrow \mathbf v\_I - \bar{\mathbf P}/m\_I \\)、\\( \bar{\mathbf P} = \frac1N\sum\_J m\_J\mathbf v\_J \\)。
-  3. \\( T\_A \\)（2 節。固定成分を除いた \\( K \\)）がちょうど \\( T\_1 \\) になるよう全体を定数倍する。
-  - 乱数列は C ライブラリの擬似乱数（種 1）で、環境に依存します。照合には `MD.Init.Velocity` を明示した入力を使います〔設計〕。
-  - この場合、固定成分の速度は 0 にされません（\\( K \\) には入らないが、`NVT_VS` 系では温度に入る。11 節）。
-- それ以外（`NVE` など）では初速度 0 です。
+- If `MD.Init.Velocity` is present, it is taken as the current velocity (fixed components set to 0).
+  `MD.Init.Velocity.Prev` (same format) is the velocity one step earlier (half step), written by the restart file.
+- If neither is present and `MD.Type` has a thermostat (`NVT_*`, `NPT_*`), initial velocities are generated randomly:
+  1. For each atom, \\( \lVert\mathbf v\_I\rVert = \sqrt{3k\_BT\_1/m\_I} \\) (\\( T\_1 \\) is the temperature in the first line of `MD.TempControl`), with direction given by a normalized uniform random vector in \\( [-\tfrac12,\tfrac12]^3 \\).
+  2. Set the total momentum to 0: \\( \mathbf v\_I \leftarrow \mathbf v\_I - \bar{\mathbf P}/m\_I \\), \\( \bar{\mathbf P} = \frac1N\sum\_J m\_J\mathbf v\_J \\).
+  3. Scale everything by a constant so that \\( T\_A \\) (section 2; \\( K \\) excluding fixed components) equals exactly \\( T\_1 \\).
+  - The random sequence is the C library pseudo-random generator (seed 1) and depends on the environment. For comparison, use inputs that specify `MD.Init.Velocity` explicitly [Design].
+  - In this case, the velocities of fixed components are not set to 0 (they do not enter \\( K \\), but they enter the temperature in the `NVT_VS` family; section 11).
+- Otherwise (`NVE`, etc.), the initial velocity is 0.
 
-### 6.2 `NVE`（速度 Verlet）〔公開〕〔規約〕
+### 6.2 `NVE` (velocity Verlet) [Public] [Convention]
 
-〔公開〕マニュアル 20.1 節：微視的正準（NVE）の MD。`.ene` の 14–17 列（`Ukc`、`Utot`、`Utot+Ukc`、Fermi 準位）で保存を確かめます。
+[Public] Manual section 20.1: microcanonical (NVE) MD. Conservation is checked with columns 14–17 of `.ene` (`Ukc`, `Utot`, `Utot+Ukc`, Fermi level).
 
-〔規約〕速度 Verlet 法です。\\( \mathbf a\_n = -\mathbf g\_n/m \\)（1 節の補正後）として、ステップ \\( n \\) で
+[Convention] Velocity Verlet. With \\( \mathbf a\_n = -\mathbf g\_n/m \\) (after the correction of section 1), at step \\( n \\):
 
 $$
 \mathbf v\_n = \mathbf v\_{n-1/2} + \tfrac12\mathbf a\_n\Delta t\ \ (n\ge 2),\qquad
@@ -430,61 +430,61 @@ $$
 \mathbf x\_{n+1} = \mathbf x\_n + \mathbf v\_{n+1/2}\Delta t
 $$
 
-- \\( n = 1 \\) では入力の速度を \\( \mathbf v\_1 \\) とします。\\( K \\) と温度 \\( T\_A \\) は \\( \mathbf v\_n \\) で求め、`.ene` に書きます。
-- 保持する速度は、ステップの終わりで \\( \mathbf v\_{n+1/2} \\) です（次のステップの `.md` にはこの半ステップの速度が出る）。
-- 固定成分は位置・速度とも更新しません。
-- 調和振動子でエネルギー誤差が \\( O(\Delta t^2) \\) で有界であることを `tools/check_geometry_md.py` で確認しています。
+- At \\( n = 1 \\), the input velocity is taken as \\( \mathbf v\_1 \\). \\( K \\) and the temperature \\( T\_A \\) are computed from \\( \mathbf v\_n \\) and written to `.ene`.
+- The velocity held at the end of the step is \\( \mathbf v\_{n+1/2} \\) (this half-step velocity appears in the `.md` of the next step).
+- Fixed components have neither position nor velocity updated.
+- `tools/check_geometry_md.py` checks that for a harmonic oscillator the energy error is bounded and \\( O(\Delta t^2) \\).
 
-### 6.3 温度制御表 `MD.TempControl`〔公開〕〔規約〕
+### 6.3 Temperature control table `MD.TempControl` [Public] [Convention]
 
-〔公開〕マニュアル 20.2・20.3 節。ブロックの最初の数は行数 \\( L \\) で、続く行の形式が方式で異なります。
+[Public] Manual sections 20.2 and 20.3. The first number of the block is the number of lines \\( L \\); the format of the following lines depends on the method.
 
-- 速度スケーリング（`NVT_VS`、`NVT_VS2`、`NVT_VS4`、`NPT_VS_PR`、`NPT_VS_WV`）：各行「\\( N\_i \\)（区間の終わりのステップ）、\\( I\_i \\)（スケーリングの間隔）、\\( T\_i \\)（K）、\\( \alpha\_i \\)」。
-- Nosé–Hoover・Langevin（`NVT_NH`、`NVT_Langevin`、`NPT_NH_PR`、`NPT_NH_WV`）：各行「\\( S\_i \\)（ステップ）、\\( T\_i \\)（K）」。
-- いずれも行の間の目標温度はステップについて線形補間します。
+- Velocity scaling (`NVT_VS`, `NVT_VS2`, `NVT_VS4`, `NPT_VS_PR`, `NPT_VS_WV`): each line is "\\( N\_i \\) (last step of the interval), \\( I\_i \\) (scaling interval), \\( T\_i \\) (K), \\( \alpha\_i \\)".
+- Nosé–Hoover and Langevin (`NVT_NH`, `NVT_Langevin`, `NPT_NH_PR`, `NPT_NH_WV`): each line is "\\( S\_i \\) (step), \\( T\_i \\) (K)".
+- In all cases, the target temperature between lines is linearly interpolated in the step number.
 
-〔規約〕補間の区間の取り方が方式で違います。\\( (N\_0, T\_0) = (0, T\_1) \\)（または \\( (S\_0, T\_0) = (0, T\_1) \\)）を補います。
+[Convention] How the interpolation intervals are taken differs between methods. \\( (N\_0, T\_0) = (0, T\_1) \\) (or \\( (S\_0, T\_0) = (0, T\_1) \\)) is prepended.
 
-| 方式 | ステップ \\( n \\) が属する区間 | 区間の外 |
+| Method | Interval containing step \\( n \\) | Outside the intervals |
 |---|---|---|
-| 速度スケーリング（NVT・NPT） | \\( N\_{i-1} < n \le N\_i \\) | スケーリングしない（`NVT_VS` 系は 6.4 節の積分だけ、マニュアルの言う NVE への移行） |
-| `NVT_NH` | \\( S\_i \le n < S\_{i+1} \\)（\\( i = 1,\dots,L-1 \\)） | 熱浴を切って速度 Verlet（6.2 節）で進める |
-| `NVT_Langevin` | 同上 | 目標温度は直前に設定された値のまま、熱浴は働き続ける |
-| `NPT_NH_*` | \\( S\_{i-1} < n \le S\_i \\) | 目標温度は直前の値のまま、熱浴は働き続ける |
+| Velocity scaling (NVT, NPT) | \\( N\_{i-1} < n \le N\_i \\) | no scaling (for the `NVT_VS` family only the integration of section 6.4; what the manual calls the transition to NVE) |
+| `NVT_NH` | \\( S\_i \le n < S\_{i+1} \\) (\\( i = 1,\dots,L-1 \\)) | the thermostat is switched off and the system advances by velocity Verlet (section 6.2) |
+| `NVT_Langevin` | same as above | the target temperature stays at the last set value; the thermostat keeps acting |
+| `NPT_NH_*` | \\( S\_{i-1} < n \le S\_i \\) | the target temperature stays at the last value; the thermostat keeps acting |
 
-### 6.4 速度スケーリング `NVT_VS`、`NVT_VS2`、`NVT_VS4`〔公開〕〔規約〕
+### 6.4 Velocity scaling `NVT_VS`, `NVT_VS2`, `NVT_VS4` [Public] [Convention]
 
-〔公開〕マニュアル 20.2 節：区間 \\( i \\) では \\( I\_i \\) ステップごとに速度を \\( s \\) 倍し、
-スケーリング後の温度を \\( T\_0 + (T - T\_0)\alpha\_i \\) にします（\\( \alpha = 0 \\) で目標温度に合わせ、\\( \alpha = 1 \\) で何もしない）：
+[Public] Manual section 20.2: in interval \\( i \\), the velocities are multiplied by \\( s \\) every \\( I\_i \\) steps,
+so that the temperature after scaling is \\( T\_0 + (T - T\_0)\alpha\_i \\) (\\( \alpha = 0 \\) matches the target temperature; \\( \alpha = 1 \\) does nothing):
 
 $$
 s = \sqrt{\frac{T\_0 + (T - T\_0)\alpha\_i}{T}}
 $$
 
-（マニュアルの HTML の式は平方根が崩れて読めますが、温度をこの値にする係数は平方根付きです。`tools/check_geometry_md.py`。）
-`NVT_VS2` は原子ごとの温度で原子ごとに、`NVT_VS4`（マニュアル 20.4 節）は原子群ごとの温度で群ごとにスケーリングします。
-原子群は `MD.num.AtomGroup`（群の数）と `MD.AtomGroup`（各行「原子番号、群番号」、群番号は 1 から連番）で指定し、
-すべての群が同じ `MD.TempControl` に従います。
+(The equation in the HTML manual has a broken square root and is hard to read, but the factor that brings the temperature to this value includes the square root. `tools/check_geometry_md.py`.)
+`NVT_VS2` scales each atom by its per-atom temperature, and `NVT_VS4` (manual section 20.4) scales each group by its per-group temperature.
+Atom groups are specified by `MD.num.AtomGroup` (number of groups) and `MD.AtomGroup` (each line "atom number, group number"; group numbers consecutive from 1),
+and all groups follow the same `MD.TempControl`.
 
-〔規約〕
+[Convention]
 
-- 積分の形（3 方式共通）：\\( \mathbf u \\) を保持する速度として
-  - \\( n = 1 \\)：\\( \mathbf x\_2 = \mathbf x\_1 + \mathbf u\_1\Delta t + \tfrac12\mathbf a\_1\Delta t^2 \\)、\\( \mathbf u \leftarrow \mathbf u\_1 + \mathbf a\_1\Delta t \\)。スケーリングなし。
-  - \\( n \ge 2 \\)：\\( \mathbf u \leftarrow \mathbf u + \mathbf a\_n\Delta t \\) → 速度の平均を引く（下記）→ 温度を計算 → スケーリングの判定と \\( \mathbf u \leftarrow s\mathbf u \\) →
-    \\( \mathbf x\_{n+1} = \mathbf x\_n + \mathbf u\Delta t + \tfrac12\mathbf a\_n\Delta t^2 \\)。
-  - これは速度 Verlet では **ありません**。スケーリングがない場合、\\( \mathbf x\_{n+1} - 2\mathbf x\_n + \mathbf x\_{n-1} = \tfrac12(3\mathbf a\_n - \mathbf a\_{n-1})\Delta t^2 \\) となり、
-    調和振動子 \\( \omega \\) では特性根の絶対値が \\( \sqrt{1 - (\omega\Delta t)^2/2} \\)、つまり 1 ステップごとにエネルギーが \\( (\omega\Delta t)^2/2 \\) の割合で失われます
-    （周期 33 fs の振動、\\( \Delta t = 0.5 \\) fs で 1 ステップ 0.45%）。速度スケーリングがこの散逸を補っています。`tools/check_geometry_md.py` で確認しています。
-- 速度の平均：自由な成分について、デカルト成分ごとに速度の単純平均（質量の重みなし）を引きます。全運動量 0 とは一致しません（質量が異なる場合）。
-- 温度：`NVT_VS` は \\( T\_A \\)、ただし \\( K \\) は **全成分**（固定成分を含む）で和を取ります。
-  `NVT_VS2` は原子ごとの \\( T\_I = K\_I/(\tfrac32k\_B) \\)（平均を引く前の速度で計算）、`NVT_VS4` は群ごとの \\( T\_g = K\_g/(\tfrac32 k\_B N\_g) \\)（平均を引いた後）。
-- スケーリングは、区間 \\( i \\) で \\( (n - N\_{i-1}) \bmod I\_i = 0 \\) のステップだけ行います。目標温度はそのステップの補間値です。
-- 最終ステップ（\\( n = \\) `MD.maxIter`）では、スケーリングと位置の更新をしません。
+- Form of the integration (common to the 3 methods): with \\( \mathbf u \\) the held velocity,
+  - \\( n = 1 \\): \\( \mathbf x\_2 = \mathbf x\_1 + \mathbf u\_1\Delta t + \tfrac12\mathbf a\_1\Delta t^2 \\), \\( \mathbf u \leftarrow \mathbf u\_1 + \mathbf a\_1\Delta t \\). No scaling.
+  - \\( n \ge 2 \\): \\( \mathbf u \leftarrow \mathbf u + \mathbf a\_n\Delta t \\) → subtract the velocity average (below) → compute the temperature → scaling test and \\( \mathbf u \leftarrow s\mathbf u \\) →
+    \\( \mathbf x\_{n+1} = \mathbf x\_n + \mathbf u\Delta t + \tfrac12\mathbf a\_n\Delta t^2 \\).
+  - This is **not** velocity Verlet. Without scaling, \\( \mathbf x\_{n+1} - 2\mathbf x\_n + \mathbf x\_{n-1} = \tfrac12(3\mathbf a\_n - \mathbf a\_{n-1})\Delta t^2 \\),
+    and for a harmonic oscillator \\( \omega \\) the characteristic roots have absolute value \\( \sqrt{1 - (\omega\Delta t)^2/2} \\), i.e. energy is lost at a rate of \\( (\omega\Delta t)^2/2 \\) per step
+    (0.45% per step for an oscillation with period 33 fs and \\( \Delta t = 0.5 \\) fs). Velocity scaling compensates for this dissipation. Checked in `tools/check_geometry_md.py`.
+- Velocity average: for the free components, the simple average of the velocity (no mass weighting) is subtracted per Cartesian component. This does not coincide with zero total momentum (when masses differ).
+- Temperature: `NVT_VS` uses \\( T\_A \\), but with \\( K \\) summed over **all components** (including fixed components).
+  `NVT_VS2` uses the per-atom \\( T\_I = K\_I/(\tfrac32k\_B) \\) (computed from the velocity before subtracting the average), and `NVT_VS4` the per-group \\( T\_g = K\_g/(\tfrac32 k\_B N\_g) \\) (after subtracting the average).
+- Scaling is performed only at steps with \\( (n - N\_{i-1}) \bmod I\_i = 0 \\) in interval \\( i \\). The target temperature is the interpolated value at that step.
+- At the final step (\\( n = \\) `MD.maxIter`), neither scaling nor the position update is performed.
 
-### 6.5 Nosé–Hoover `NVT_NH`〔公開〕〔規約〕
+### 6.5 Nosé–Hoover `NVT_NH` [Public] [Convention]
 
-〔公開〕マニュアル 20.3 節：熱浴の質量 `NH.Mass.HeatBath`（既定 20.0、単位は 統一原子質量単位 × bohr²）。拡張系の Hamiltonian が保存量として `.ene` に出ます。
-運動方程式は Nosé（Mol. Phys. **52**, 255 (1984)）、Hoover（Phys. Rev. A **31**, 1695 (1985)）の形
+[Public] Manual section 20.3: thermostat mass `NH.Mass.HeatBath` (default 20.0, in units of unified atomic mass unit × bohr²). The Hamiltonian of the extended system is output to `.ene` as the conserved quantity.
+The equations of motion are of the form of Nosé (Mol. Phys. **52**, 255 (1984)) and Hoover (Phys. Rev. A **31**, 1695 (1985)),
 
 $$
 \dot{\mathbf R}\_I = \mathbf v\_I,\qquad
@@ -493,373 +493,373 @@ $$
 \dot\eta = \zeta
 $$
 
-で、\\( H' = U + K + \tfrac12 Q\zeta^2 + gk\_BT\_0\eta \\) が保存されます（\\( T\_0 \\) 一定のとき）。
+and \\( H' = U + K + \tfrac12 Q\zeta^2 + gk\_BT\_0\eta \\) is conserved (for constant \\( T\_0 \\)).
 
-〔規約〕
+[Convention]
 
-- \\( g = 3N \\)（固定成分があっても全原子数で数える）、\\( Q \\) は `NH.Mass.HeatBath` を \\( m\_e \\)·bohr² に換算した値です。
-- 離散化（速度 Verlet 型）。ステップ \\( n \\) の力が得られた時点で：
-  1. **補正**（\\( n \ge 2 \\)）：前のステップの予測値 \\( \zeta' \\) と半ステップ速度 \\( \mathbf v\_{n-1/2} \\) から、連立方程式
-     \\( \mathbf v\_n = \mathbf v\_{n-1/2} + \tfrac12\Delta t\\,(\mathbf a\_n - \zeta\_n\mathbf v\_n) \\)、
+- \\( g = 3N \\) (counted with the total number of atoms even if there are fixed components); \\( Q \\) is `NH.Mass.HeatBath` converted to \\( m\_e \\)·bohr².
+- Discretization (velocity-Verlet type). When the forces of step \\( n \\) are available:
+  1. **Correction** (\\( n \ge 2 \\)): from the predicted value \\( \zeta' \\) of the previous step and the half-step velocity \\( \mathbf v\_{n-1/2} \\), the simultaneous equations
+     \\( \mathbf v\_n = \mathbf v\_{n-1/2} + \tfrac12\Delta t\\,(\mathbf a\_n - \zeta\_n\mathbf v\_n) \\),
      \\( \zeta\_n = \zeta' + \Delta t\\,(K(\mathbf v\_n) - \tfrac12 gk\_BT\_0)/Q \\)
-     を Newton 法で解きます（反復は最大 21 回。収束の判定の細部はビット一致に関わるだけなので定めない）。
-  2. 速度の平均を引き（6.4 節と同じ）、\\( K \\)、\\( T\_A \\)、\\( H' \\) を計算して `.ene` に書く。
-  3. **予測**（最終ステップ以外）：\\( \mathbf v\_{n+1/2} = \mathbf v\_n + \tfrac12\Delta t\\,(\mathbf a\_n - \zeta\_n\mathbf v\_n) \\)、\\( \mathbf x\_{n+1} = \mathbf x\_n + \mathbf v\_{n+1/2}\Delta t \\)、
-     \\( \zeta' = \zeta\_n + \Delta t\\,(K(\mathbf v\_n) - \tfrac12 gk\_BT\_0)/Q \\)、\\( \eta\_{n+1} = \eta\_n + \zeta'\Delta t \\)。
-  - 1 と 3 を合わせると \\( \zeta\_{n+1} = \zeta\_n + \tfrac{\Delta t}{2}[\dot\zeta\_n + \dot\zeta\_{n+1}] \\)（台形則）で、上の連続方程式の \\( \dot\zeta = (2K - gk\_BT\_0)/Q \\) に一致します。
-    `tools/check_geometry_md.py` で、この離散化が \\( H' \\) を \\( O(\Delta t^2) \\) で保存することを確認しています。
-- \\( n = 1 \\) では \\( \zeta = \eta = 0 \\) から始めます（入力の `NH.czeta` 等は再開のとき、つまり通算 \\( n \ge 2 \\) でだけ使われる）。
-- 区間の外（6.3 節）では \\( \zeta \\) を使わず速度 Verlet で進めます。`.ene` の \\( H' \\) はそのときの \\( \zeta, \eta \\) で計算されます。
-- `.ene` の 20・21・22 列は \\( \zeta \\)、予測値 \\( \zeta' \\)、\\( H' \\) です。
+     are solved by Newton's method (at most 21 iterations; the details of the convergence test matter only for bitwise agreement and are not specified).
+  2. Subtract the velocity average (same as section 6.4), compute \\( K \\), \\( T\_A \\), \\( H' \\), and write them to `.ene`.
+  3. **Prediction** (except at the final step): \\( \mathbf v\_{n+1/2} = \mathbf v\_n + \tfrac12\Delta t\\,(\mathbf a\_n - \zeta\_n\mathbf v\_n) \\), \\( \mathbf x\_{n+1} = \mathbf x\_n + \mathbf v\_{n+1/2}\Delta t \\),
+     \\( \zeta' = \zeta\_n + \Delta t\\,(K(\mathbf v\_n) - \tfrac12 gk\_BT\_0)/Q \\), \\( \eta\_{n+1} = \eta\_n + \zeta'\Delta t \\).
+  - Combining 1 and 3 gives \\( \zeta\_{n+1} = \zeta\_n + \tfrac{\Delta t}{2}[\dot\zeta\_n + \dot\zeta\_{n+1}] \\) (trapezoidal rule), consistent with \\( \dot\zeta = (2K - gk\_BT\_0)/Q \\) of the continuous equations above.
+    `tools/check_geometry_md.py` checks that this discretization conserves \\( H' \\) to \\( O(\Delta t^2) \\).
+- At \\( n = 1 \\), start from \\( \zeta = \eta = 0 \\) (the input `NH.czeta` etc. are used only on restart, i.e. for cumulative \\( n \ge 2 \\)).
+- Outside the intervals (section 6.3), \\( \zeta \\) is not used and the system advances by velocity Verlet. The \\( H' \\) in `.ene` is computed with the \\( \zeta, \eta \\) at that time.
+- Columns 20, 21, 22 of `.ene` are \\( \zeta \\), the predicted value \\( \zeta' \\), and \\( H' \\).
 
-### 6.6 Langevin `NVT_Langevin`〔規約〕
+### 6.6 Langevin `NVT_Langevin` [Convention]
 
-公開資料に説明がありません（〔規約〕のみ）。運動方程式は標準的な Langevin 方程式
+There is no description in the public documents ([Convention] only). The equation of motion is the standard Langevin equation
 
 $$
 m\_I\dot{\mathbf v}\_I = \mathbf F\_I - m\_I\gamma\mathbf v\_I + \mathbf R\_I(t),\qquad
 \langle R\_{I\alpha}(t)R\_{J\beta}(t')\rangle = 2m\_I\gamma k\_BT\_0\\,\delta\_{IJ}\delta\_{\alpha\beta}\delta(t-t')
 $$
 
-です。\\( \gamma \\) は `Langevin.Friction.Factor`（原子単位の時間の逆数、既定 0.001、すなわち約 41 ps⁻¹）。
+\\( \gamma \\) is `Langevin.Friction.Factor` (inverse of the atomic time unit, default 0.001, i.e. about 41 ps⁻¹).
 
-- 各ステップで、自由な成分に標準偏差 \\( \sqrt{2m\_I\gamma k\_BT\_0/\Delta t} \\) の Gauss 乱数（Box–Muller の片側）を力に加えます。以下 \\( \tilde{\mathbf a} \\) はこれを含む加速度です。
-- 離散化：
-  - \\( n = 1 \\)：\\( \mathbf x\_2 = \mathbf x\_1 + \mathbf u\Delta t + \tfrac12\Delta t^2(\tilde{\mathbf a}\_1 - \gamma\mathbf u) \\)、\\( \mathbf u \leftarrow \mathbf u + \tilde{\mathbf a}\_1\Delta t \\)。
-  - \\( n \ge 2 \\)：\\( \mathbf u \leftarrow \mathbf u + \tfrac12(\tilde{\mathbf a}\_n + \tilde{\mathbf a}\_{n-1})\Delta t - \gamma(\mathbf x\_n - \mathbf x\_{n-1}) \\)、
-    \\( \mathbf x\_{n+1} = \mathbf x\_n + (\mathbf u\Delta t + \tfrac12\tilde{\mathbf a}\_n\Delta t^2)/(1 + \tfrac12\gamma\Delta t) \\)。
-  - 最終ステップでも位置を更新します（他の方式と異なる）。速度の平均は引きません。
-- \\( K \\)、\\( T\_A \\) は更新後の \\( \mathbf u \\) で計算します。
-- 乱数は 6.1 節と同じ C ライブラリの擬似乱数列の続きです。軌跡の照合はできないので、統計量（平均温度など）で比べます〔設計〕。
+- At each step, a Gaussian random number with standard deviation \\( \sqrt{2m\_I\gamma k\_BT\_0/\Delta t} \\) (one branch of Box–Muller) is added to the force on the free components. Below, \\( \tilde{\mathbf a} \\) is the acceleration including this term.
+- Discretization:
+  - \\( n = 1 \\): \\( \mathbf x\_2 = \mathbf x\_1 + \mathbf u\Delta t + \tfrac12\Delta t^2(\tilde{\mathbf a}\_1 - \gamma\mathbf u) \\), \\( \mathbf u \leftarrow \mathbf u + \tilde{\mathbf a}\_1\Delta t \\).
+  - \\( n \ge 2 \\): \\( \mathbf u \leftarrow \mathbf u + \tfrac12(\tilde{\mathbf a}\_n + \tilde{\mathbf a}\_{n-1})\Delta t - \gamma(\mathbf x\_n - \mathbf x\_{n-1}) \\),
+    \\( \mathbf x\_{n+1} = \mathbf x\_n + (\mathbf u\Delta t + \tfrac12\tilde{\mathbf a}\_n\Delta t^2)/(1 + \tfrac12\gamma\Delta t) \\).
+  - The position is updated even at the final step (unlike the other methods). The velocity average is not subtracted.
+- \\( K \\) and \\( T\_A \\) are computed with the updated \\( \mathbf u \\).
+- The random numbers continue the same C library pseudo-random sequence as in section 6.1. Trajectories cannot be compared, so statistics (mean temperature, etc.) are compared [Design].
 
-### 6.7 NPT `NPT_VS_PR`、`NPT_VS_WV`、`NPT_NH_PR`、`NPT_NH_WV`〔公開〕〔規約〕
+### 6.7 NPT `NPT_VS_PR`, `NPT_VS_WV`, `NPT_NH_PR`, `NPT_NH_WV` [Public] [Convention]
 
-〔公開〕マニュアル 20.6・20.7 節：熱浴は速度スケーリング（VS）または Nosé–Hoover（NH）、
-圧力浴は Parrinello–Rahman（PR、J. Appl. Phys. **52**, 7182 (1981)）または Wentzcovitch（WV、Phys. Rev. B **44**, 2358 (1991)）。
-キーワード：
+[Public] Manual sections 20.6 and 20.7: the thermostat is velocity scaling (VS) or Nosé–Hoover (NH);
+the barostat is Parrinello–Rahman (PR, J. Appl. Phys. **52**, 7182 (1981)) or Wentzcovitch (WV, Phys. Rev. B **44**, 2358 (1991)).
+Keywords:
 
-| キーワード | 既定 | 意味 |
+| Keyword | Default | Meaning |
 |---|---|---|
-| `MD.TempControl` | — | 6.3 節 |
-| `MD.CellPressureControl` | — | 行数の後に「ステップ、圧力（GPa）」の行。間は線形補間。正の圧力で圧縮 |
-| `NPT.Mass.Barostat` | 自動 | バロスタットの質量 \\( W \\)（統一原子質量単位） |
-| `NPT.LatticeRestriction` | `none` | `none`、`cubic`、`ortho` |
-| `MD.TempTolerance` | 100 K | \\( \lvert T - T\_0\rvert \\) がこれ未満ならスケーリングしない（VS） |
-| `MD.applied.pressure.flag` | `1 1 1` | 圧力をかける成分 |
-| `NH.Mass.HeatBath` | 20 | NH の熱浴の質量（6.5 節と同じ単位） |
+| `MD.TempControl` | — | section 6.3 |
+| `MD.CellPressureControl` | — | after the number of lines, lines "step, pressure (GPa)". Linearly interpolated in between. Positive pressure compresses |
+| `NPT.Mass.Barostat` | automatic | barostat mass \\( W \\) (unified atomic mass unit) |
+| `NPT.LatticeRestriction` | `none` | `none`, `cubic`, `ortho` |
+| `MD.TempTolerance` | 100 K | no scaling if \\( \lvert T - T\_0\rvert \\) is below this (VS) |
+| `MD.applied.pressure.flag` | `1 1 1` | components to which pressure is applied |
+| `NH.Mass.HeatBath` | 20 | NH thermostat mass (same units as section 6.5) |
 
-拘束（`MD.Fixed.XYZ`）は NPT と併用できません（マニュアル 20.6 節）。
+Constraints (`MD.Fixed.XYZ`) cannot be combined with NPT (manual section 20.6).
 
-〔規約〕変数は分数座標 \\( \mathbf s\_I \\)、その時間微分 \\( \dot{\mathbf s}\_I = A^{-\mathsf T}\mathbf v\_I \\)、格子 \\( A \\) とその速度 \\( \dot A \\) です
-（格子の速度は再開ファイルの `Atoms.Unitvectors.Velocity` ブロックに保存され、最初は 0）。
-\\( G = AA^{\mathsf T} \\)（\\( G\_{ij} = \mathbf a\_i\cdot\mathbf a\_j \\)）として、原子の運動方程式は
+[Convention] The variables are the fractional coordinates \\( \mathbf s\_I \\), their time derivatives \\( \dot{\mathbf s}\_I = A^{-\mathsf T}\mathbf v\_I \\), the lattice \\( A \\), and its velocity \\( \dot A \\)
+(the lattice velocity is stored in the `Atoms.Unitvectors.Velocity` block of the restart file and is initially 0).
+With \\( G = AA^{\mathsf T} \\) (\\( G\_{ij} = \mathbf a\_i\cdot\mathbf a\_j \\)), the atomic equation of motion is
 
 $$
 \ddot{\mathbf s}\_I = -\frac{A^{-\mathsf T}\mathbf g\_I}{m\_I} - G^{-1}\dot G\\,\dot{\mathbf s}\_I\ \ [-\ \zeta\dot{\mathbf s}\_I\ \text{(NH)}]
 $$
 
-格子の運動方程式（PR）は、内部圧力テンソル
+The lattice equation of motion (PR) uses the internal pressure tensor
 
 $$
 \Pi\_{\alpha\beta} = \frac1\Omega\sum\_I m\_I v\_{I\alpha}v\_{I\beta} - \frac{\Sigma\_{\alpha\beta}}{\Omega},\qquad \mathbf v\_I = A^{\mathsf T}\dot{\mathbf s}\_I
 $$
 
-を使って
+and reads
 
 $$
 W\ddot A\_{i\alpha} = \sum\_\beta\left(\Pi\_{\alpha\beta} - P f\_\alpha\delta\_{\alpha\beta}\right)\sigma\_{i\beta}
 $$
 
-です（\\( \sigma\_{i\beta} \\) は \\( S \\) の要素。\\( \partial\Omega/\partial A\_{i\beta} = \sigma\_{i\beta} \\)、`tools/check_geometry_md.py`）。
-`cubic` では右辺の括弧の行列の非対角を 0 にし対角をその平均に、`ortho` では非対角を 0 にします。
+(\\( \sigma\_{i\beta} \\) are the elements of \\( S \\); \\( \partial\Omega/\partial A\_{i\beta} = \sigma\_{i\beta} \\), `tools/check_geometry_md.py`).
+For `cubic`, the off-diagonal elements of the matrix in parentheses on the right-hand side are set to 0 and the diagonal to its average; for `ortho`, the off-diagonal elements are set to 0.
 
-- 時間積分（1 ステップ。半陰的 Euler）：
-  1. \\( \ddot{\mathbf s} \\) を現在の量で計算し、\\( \dot{\mathbf s} \leftarrow \dot{\mathbf s} + \ddot{\mathbf s}\Delta t \\)。
-  2. \\( K \\) と \\( T\_A \\) を新しい \\( \dot{\mathbf s} \\) と現在の \\( A \\) で計算。
-     VS：区間内で \\( n = 1 \\) か、\\( (n - N\_{i-1}) \bmod I\_i = 0 \\) かつ \\( \lvert T\_0 - T\rvert > \\) `MD.TempTolerance` のとき \\( \dot{\mathbf s} \\) を \\( s \\) 倍（\\( T < 10^{-8}T\_0 \\) なら倍率 1）。
-     NH：\\( \zeta \leftarrow \zeta + Nk\_B(T\_A - T\_0)\Delta t/Q \\)、\\( \eta \leftarrow \eta + \zeta\Delta t \\)（\\( n = 1 \\) で \\( \zeta = \eta = 0 \\) から）。
-  3. \\( \mathbf s \leftarrow \mathbf s + \dot{\mathbf s}\Delta t \\)。
-  4. \\( \ddot A \\) を新しい \\( \dot{\mathbf s} \\)、現在の \\( A \\) と応力で計算し、\\( \dot A \leftarrow \dot A + \ddot A\Delta t \\)、\\( A \leftarrow A + \dot A\Delta t \\)。
-  5. \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\)、\\( \mathbf v\_I = A^{\mathsf T}\dot{\mathbf s}\_I \\)。
-- 外圧 \\( P \\)：`MD.CellPressureControl` の行 \\( (S\_i, P\_i) \\) に \\( (0, P\_1) \\) を補い、\\( S\_{i-1} < n \le S\_i \\) で補間します。
-  最後の行のステップを超えた場合の値は定義されていません（〔規約〕、再実装では最後の値を保つ〔設計〕）。`MD.applied.pressure` は NPT では使いません。
-- NH の熱浴は \\( \dot\zeta = Nk\_B(T\_A - T\_0)/Q = (2K - 3Nk\_BT\_0)/(3Q) \\) です。これは 6.5 節の形で質量を \\( 3Q \\) にしたものに当たり、
-  保存量は \\( \tfrac12(3Q)\zeta^2 \\) を含みます。既存実装が出力する値は \\( \tfrac12 Q\zeta^2 + 3Nk\_BT\_0\eta \\) を使うので、厳密には保存しません（`tools/check_geometry_md.py` の 5 番）。
-- 既定の \\( W \\)：PR では \\( W = \frac{3}{4\pi^2}\sum\_I m\_I \\)、WV では \\( W = \frac{3}{4\pi^2}\sum\_I m\_I\times\frac{0.01}{\Omega^{2/3}} \\)（\\( \Omega \\) は最初の体積、bohr³）。
-  〔公開〕マニュアル 20.6 節の Eq. 27 は PR の式と一致します。20.7 節の WV の既定値の式は表示が崩れていて読み取れません。
-- WV の格子の運動方程式は、格子の運動エネルギーを \\( \tfrac12 W\sum\_{ij}(\dot{\mathbf a}\_i\cdot\dot{\mathbf a}\_j)F\_{ij} \\)、\\( F = SS^{\mathsf T} \\)（現在の格子）とした Lagrangian の Euler–Lagrange 方程式
+- Time integration (one step; semi-implicit Euler):
+  1. Compute \\( \ddot{\mathbf s} \\) from the current quantities, and \\( \dot{\mathbf s} \leftarrow \dot{\mathbf s} + \ddot{\mathbf s}\Delta t \\).
+  2. Compute \\( K \\) and \\( T\_A \\) with the new \\( \dot{\mathbf s} \\) and the current \\( A \\).
+     VS: within an interval, if \\( n = 1 \\), or if \\( (n - N\_{i-1}) \bmod I\_i = 0 \\) and \\( \lvert T\_0 - T\rvert > \\) `MD.TempTolerance`, multiply \\( \dot{\mathbf s} \\) by \\( s \\) (factor 1 if \\( T < 10^{-8}T\_0 \\)).
+     NH: \\( \zeta \leftarrow \zeta + Nk\_B(T\_A - T\_0)\Delta t/Q \\), \\( \eta \leftarrow \eta + \zeta\Delta t \\) (starting from \\( \zeta = \eta = 0 \\) at \\( n = 1 \\)).
+  3. \\( \mathbf s \leftarrow \mathbf s + \dot{\mathbf s}\Delta t \\).
+  4. Compute \\( \ddot A \\) with the new \\( \dot{\mathbf s} \\), the current \\( A \\), and the stress; \\( \dot A \leftarrow \dot A + \ddot A\Delta t \\), \\( A \leftarrow A + \dot A\Delta t \\).
+  5. \\( \mathbf R\_I = \mathbf O + A^{\mathsf T}\mathbf s\_I \\), \\( \mathbf v\_I = A^{\mathsf T}\dot{\mathbf s}\_I \\).
+- External pressure \\( P \\): \\( (0, P\_1) \\) is prepended to the lines \\( (S\_i, P\_i) \\) of `MD.CellPressureControl`, and the value is interpolated for \\( S\_{i-1} < n \le S\_i \\).
+  The value beyond the step of the last line is undefined ([Convention]; a reimplementation keeps the last value [Design]). `MD.applied.pressure` is not used in NPT.
+- The NH thermostat is \\( \dot\zeta = Nk\_B(T\_A - T\_0)/Q = (2K - 3Nk\_BT\_0)/(3Q) \\). This corresponds to the form of section 6.5 with mass \\( 3Q \\),
+  and the conserved quantity contains \\( \tfrac12(3Q)\zeta^2 \\). The value output by the existing implementation uses \\( \tfrac12 Q\zeta^2 + 3Nk\_BT\_0\eta \\), so it is not strictly conserved (item 5 of `tools/check_geometry_md.py`).
+- Default \\( W \\): for PR, \\( W = \frac{3}{4\pi^2}\sum\_I m\_I \\); for WV, \\( W = \frac{3}{4\pi^2}\sum\_I m\_I\times\frac{0.01}{\Omega^{2/3}} \\) (\\( \Omega \\) is the initial volume, bohr³).
+  [Public] Eq. 27 in manual section 20.6 agrees with the PR expression. The expression for the WV default in section 20.7 is garbled and cannot be read.
+- The WV lattice equation of motion is the Euler–Lagrange equation of the Lagrangian whose lattice kinetic energy is \\( \tfrac12 W\sum\_{ij}(\dot{\mathbf a}\_i\cdot\dot{\mathbf a}\_j)F\_{ij} \\), \\( F = SS^{\mathsf T} \\) (current lattice),
 
 $$
 W\sum\_j\left(F\_{ij}\ddot{\mathbf a}\_j + \dot F\_{ij}\dot{\mathbf a}\_j\right) = \mathbf f\_i + \tfrac12 W\sum\_{jk}(\dot{\mathbf a}\_j\cdot\dot{\mathbf a}\_k)\\,\frac{\partial F\_{jk}}{\partial\mathbf a\_i},\qquad
 f\_{i\alpha} = \sum\_\beta\left(\Pi\_{\alpha\beta} - Pf\_\alpha\delta\_{\alpha\beta}\right)\sigma\_{i\beta}
 $$
 
-  を、\\( F^{-1} = G/\Omega^2 \\) を掛けて \\( \ddot{\mathbf a}\_i \\) について解いたものです（\\( \mathbf f\_i \\) は PR の右辺と同じ。
-  \\( \partial\boldsymbol\sigma\_j/\partial a\_{i\alpha} \\) は \\( (\sigma\_{i\alpha}\boldsymbol\sigma\_j - \sigma\_{j\alpha}\boldsymbol\sigma\_i)/\Omega \\)）。
-  格子の制限（`cubic`、`ortho`）は \\( \mathbf f \\) の括弧の行列にかけます。〔規約〕既存実装では \\( \dot F\_{ij} \\) を
-  \\( 2\dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j \\)（対称化していない）で計算しています。
-- 出力：`System.Name.npt.ene` に 1 行ずつ「ステップ、時刻 \\( n\Delta t \\)（fs）、体積（bohr³）、\\( T\_A \\)（K）、内部圧力 \\( -\mathrm{tr}\\,\Sigma/(3\Omega) \\)（GPa、係数 29.42×10³）、
-  `Utot`、`Ukc`、`Ubaro`、`Wbaro` = \\( P\Omega \\)、その和（NH では熱浴のエネルギーも加える）」（Hartree）。
-  PR の `Ubaro` は \\( \tfrac12 W\sum\_{i}\lVert\dot{\mathbf a}\_i\rVert^2 \\)。WV の `Ubaro` は最初の格子の \\( F^{(0)} \\) から作った量で、上の運動エネルギーとは一致しません（〔未確定〕）。
-  見出しの 2 行（方式名、時間刻み、\\( W \\)（統一原子質量単位））がファイルの先頭に付きます。
-- NPT では `.ene` を書きません。`.md` の速度の列は 0 です（10 節）。
+  solved for \\( \ddot{\mathbf a}\_i \\) by multiplying by \\( F^{-1} = G/\Omega^2 \\) (\\( \mathbf f\_i \\) is the same as the PR right-hand side;
+  \\( \partial\boldsymbol\sigma\_j/\partial a\_{i\alpha} \\) is \\( (\sigma\_{i\alpha}\boldsymbol\sigma\_j - \sigma\_{j\alpha}\boldsymbol\sigma\_i)/\Omega \\)).
+  The lattice restrictions (`cubic`, `ortho`) are applied to the matrix in parentheses in \\( \mathbf f \\). [Convention] The existing implementation computes \\( \dot F\_{ij} \\) as
+  \\( 2\dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j \\) (not symmetrized).
+- Output: one line per step in `System.Name.npt.ene`: "step, time \\( n\Delta t \\) (fs), volume (bohr³), \\( T\_A \\) (K), internal pressure \\( -\mathrm{tr}\\,\Sigma/(3\Omega) \\) (GPa, factor 29.42×10³),
+  `Utot`, `Ukc`, `Ubaro`, `Wbaro` = \\( P\Omega \\), their sum (for NH the thermostat energy is also added)" (Hartree).
+  For PR, `Ubaro` is \\( \tfrac12 W\sum\_{i}\lVert\dot{\mathbf a}\_i\rVert^2 \\). For WV, `Ubaro` is a quantity built from \\( F^{(0)} \\) of the initial lattice and does not agree with the kinetic energy above ([Open]).
+  Two header lines (method name, time step, \\( W \\) (unified atomic mass unit)) are placed at the top of the file.
+- In NPT, `.ene` is not written. The velocity columns of `.md` are 0 (section 10).
 
-### 6.8 MD の再開〔規約〕
+### 6.8 MD restart [Convention]
 
-`System.Name.dat#` に次が書かれ、そのまま入力にすると続きから計算します。
+The following are written to `System.Name.dat#`; using it as input as is continues the calculation.
 
-- `MD.Current.Iter`（そのステップ番号）、`<Atoms.SpeciesAndCoordinates`（現在の座標、入力と同じ単位）、`scf.restart on`、`scf.fixed.grid`（原点）。
-- `<Atoms.UnitVectors`（現在の格子）、NPT では `<Atoms.Unitvectors.Velocity`（\\( \dot A \\)）と、WV では `<NPT.WV.F0`。
-- MD では `<MD.Init.Velocity`（保持している速度、m/s）。`NVE`、`NVT_NH`、`NVT_Langevin`、`NPT_NH_*` ではさらに `<MD.Init.Velocity.Prev`（半ステップの速度）。
-  NH では `NH.R`（\\( \eta \\)）、`NH.nzeta`（\\( \zeta' \\)）、`NH.czeta`（\\( \zeta \\)）。
+- `MD.Current.Iter` (that step number), `<Atoms.SpeciesAndCoordinates` (current coordinates, in the same units as the input), `scf.restart on`, `scf.fixed.grid` (origin).
+- `<Atoms.UnitVectors` (current lattice); for NPT, `<Atoms.Unitvectors.Velocity` (\\( \dot A \\)), and for WV, `<NPT.WV.F0`.
+- For MD, `<MD.Init.Velocity` (held velocity, m/s). For `NVE`, `NVT_NH`, `NVT_Langevin`, `NPT_NH_*`, additionally `<MD.Init.Velocity.Prev` (half-step velocity).
+  For NH, `NH.R` (\\( \eta \\)), `NH.nzeta` (\\( \zeta' \\)), `NH.czeta` (\\( \zeta \\)).
 
-## 7. 周期境界での原子の折り返し〔規約〕
+## 7. Wrapping atoms under periodic boundary conditions [Convention]
 
-- 分子動力学（`NVE`、`NVT_*`、`NPT_*`）の各ステップの更新後、原点 \\( \mathbf O \\) からの分数座標
-  \\( s\_i = (\mathbf R - \mathbf O)\cdot\mathbf b\_i/(2\pi) \\)（\\( \mathbf b\_i \\) は逆格子ベクトル）が範囲外の原子を戻します：
-  \\( s\_i > 1 \\) なら \\( s\_i \leftarrow s\_i - \lfloor s\_i\rfloor \\)、\\( s\_i < 0 \\) なら \\( s\_i \leftarrow s\_i + \lfloor -s\_i\rfloor + 1 \\)。
-  \\( s\_i = 1 \\) ちょうどはそのまま残ります（\\( s\_i = -1 \\) ちょうどは 1 になる）。
-- 戻した原子については、密度の外挿に使う座標の履歴と、GDIIS の座標の履歴も同じ格子ベクトルだけずらし、外挿や履歴が連続になるようにします
-  （[密度行列と電荷ミキシング](density-mixing.md) 7 節）。戻したかどうかは次のステップの SCF に伝えられ、前のステップの量からの再開のしかたに影響します（詳細は〔未確定〕）。
-- 構造最適化と格子の最適化では折り返しません。NEB でも折り返しません（8 節）。
-- 孤立系（`Cluster` など）でも同じ処理が箱に対して行われます。分子が箱の境界をまたぐと分子が分断されるので、再実装では孤立系では折り返さないことを推奨します〔設計〕。
-- 入力で分数座標（`FRAC`）を使った場合、読み込み時にも \\( [0, 1) \\) に戻します（同じ規則）。
+- After the update of each step of molecular dynamics (`NVE`, `NVT_*`, `NPT_*`), atoms whose fractional coordinates measured from the origin \\( \mathbf O \\),
+  \\( s\_i = (\mathbf R - \mathbf O)\cdot\mathbf b\_i/(2\pi) \\) (\\( \mathbf b\_i \\) are the reciprocal lattice vectors), are out of range are moved back:
+  if \\( s\_i > 1 \\), \\( s\_i \leftarrow s\_i - \lfloor s\_i\rfloor \\); if \\( s\_i < 0 \\), \\( s\_i \leftarrow s\_i + \lfloor -s\_i\rfloor + 1 \\).
+  Exactly \\( s\_i = 1 \\) is left as is (exactly \\( s\_i = -1 \\) becomes 1).
+- For atoms moved back, the coordinate history used for density extrapolation and the GDIIS coordinate history are shifted by the same lattice vector, so that the extrapolation and history are continuous
+  ([Density matrix and charge mixing](density-mixing.md) section 7). Whether atoms were moved back is passed to the SCF of the next step and affects how it restarts from the quantities of the previous step (details [Open]).
+- Geometry optimization and lattice optimization do not wrap. NEB does not wrap either (section 8).
+- For isolated systems (`Cluster`, etc.), the same processing is applied with respect to the box. When a molecule straddles the box boundary it gets split, so a reimplementation is recommended not to wrap for isolated systems [Design].
+- When fractional coordinates (`FRAC`) are used in the input, they are also brought into \\( [0, 1) \\) when read (same rule).
 
 ## 8. NEB
 
-### 8.1 入力〔公開〕〔規約〕
+### 8.1 Input [Public] [Convention]
 
-〔公開〕マニュアル 51 節：反応物と生成物の構造をそれぞれ最適化してから、`MD.Type NEB` で両者をつなぐ最小エネルギー経路を求めます。
-同じ単位胞・カットオフ・基底・擬ポテンシャル・電子温度を使います。周期系では座標を `Ang` か `AU` で与え、`FRAC` を使わないこと（像が不連続になる）。
+[Public] Manual section 51: after optimizing the reactant and product structures separately, `MD.Type NEB` finds the minimum energy path connecting them.
+The same unit cell, cutoff, basis, pseudopotentials, and electronic temperature are used. For periodic systems, give coordinates in `Ang` or `AU` and do not use `FRAC` (images become discontinuous).
 
-| キーワード | 既定（既存実装） | マニュアルの記載 | 意味 |
+| Keyword | Default (existing implementation) | Stated in manual | Meaning |
 |---|---|---|---|
-| `MD.NEB.Number.Images` | 10 | 10 | 端を除いた像の数 \\( P \\) |
-| `MD.NEB.Spring.Const` | 0.4 | 0.1 | ばね定数 \\( k \\)（Hartree/bohr²） |
-| `MD.NEB.Parallel.Number` | 0（自動） | — | 像の並列化の群の数（8.4 節） |
-| `MD.Opt.DIIS.History` | 2〔未確定〕 | 7 | DIIS の履歴 |
-| `MD.Opt.StartDIIS` | 1 | 5 | このステップから DIIS＋BFGS |
+| `MD.NEB.Number.Images` | 10 | 10 | number of images \\( P \\) excluding the end points |
+| `MD.NEB.Spring.Const` | 0.4 | 0.1 | spring constant \\( k \\) (Hartree/bohr²) |
+| `MD.NEB.Parallel.Number` | 0 (automatic) | — | number of groups for image parallelization (section 8.4) |
+| `MD.Opt.DIIS.History` | 2 [Open] | 7 | DIIS history |
+| `MD.Opt.StartDIIS` | 1 | 5 | DIIS + BFGS from this step |
 | `MD.Opt.criterion` | 0.0003 | 0.0003 | Hartree/bohr |
-| `MD.maxIter` | 1 | 1 | 最適化の反復の上限 |
-| `MD.Fixed.XYZ` | なし | — | 固定する成分 |
+| `MD.maxIter` | 1 | 1 | upper bound on optimization iterations |
+| `MD.Fixed.XYZ` | none | — | components to fix |
 
-〔規約〕
+[Convention]
 
-- 反応物は `<Atoms.SpeciesAndCoordinates`、生成物は `<NEB.Atoms.SpeciesAndCoordinates`（同じ形式）で与えます。
-- 初期経路は、デカルト座標での直線補間 \\( \mathbf x\_p = \mathbf x\_0 + \frac{p}{P+1}(\mathbf x\_{P+1} - \mathbf x\_0) \\)（\\( p = 1,\dots,P \\)）です。
-  `FRAC` の端点は読み込み時に \\( [0,1) \\) に戻されるので、周期の境界をまたぐ移動は不連続になります（マニュアルの注意の理由）。
-  最小像規約は使いません。
-- 〔公開〕マニュアル 51.5 節：`scf.restart on` のとき、`<NEB1.Atoms.SpeciesAndCoordinates` … `<NEBP.Atoms.SpeciesAndCoordinates` で各像の座標を与えられます。
-- 各像（と、最初の 1 回だけ両端）は独立した通常の SCF 計算として実行され、`System.Name.dat_p`（入力）と `System.Name_p.out` が作られます（\\( p = 0,\dots,P+1 \\)）。
+- The reactant is given by `<Atoms.SpeciesAndCoordinates` and the product by `<NEB.Atoms.SpeciesAndCoordinates` (same format).
+- The initial path is linear interpolation in Cartesian coordinates, \\( \mathbf x\_p = \mathbf x\_0 + \frac{p}{P+1}(\mathbf x\_{P+1} - \mathbf x\_0) \\) (\\( p = 1,\dots,P \\)).
+  End points given in `FRAC` are brought into \\( [0,1) \\) when read, so a motion crossing a periodic boundary becomes discontinuous (the reason for the manual's caution).
+  The minimum-image convention is not used.
+- [Public] Manual section 51.5: with `scf.restart on`, the coordinates of each image can be given by `<NEB1.Atoms.SpeciesAndCoordinates` … `<NEBP.Atoms.SpeciesAndCoordinates`.
+- Each image (and the two end points, only the first time) is run as an independent ordinary SCF calculation, producing `System.Name.dat_p` (input) and `System.Name_p.out` (\\( p = 0,\dots,P+1 \\)).
 
-### 8.2 接線と力〔公開〕〔規約〕
+### 8.2 Tangent and forces [Public] [Convention]
 
-〔公開〕NEB の技術ノート（T. Ozaki, 2011）とマニュアル 51.1 節：G. Henkelman and H. Jónsson, J. Chem. Phys. **113**, 9978 (2000) の
-改良接線（Eq. 8–11）、垂直な力（Eq. 4）、ばねの平行な力（Eq. 12）を使います。climbing image はありません。
+[Public] The NEB technical note (T. Ozaki, 2011) and manual section 51.1: the improved tangent (Eqs. 8–11), perpendicular force (Eq. 4), and parallel spring force (Eq. 12)
+of G. Henkelman and H. Jónsson, J. Chem. Phys. **113**, 9978 (2000) are used. There is no climbing image.
 
-像 \\( p \\) のエネルギーを \\( V\_p \\)、\\( \boldsymbol\tau^+ = \mathbf x\_{p+1} - \mathbf x\_p \\)、\\( \boldsymbol\tau^- = \mathbf x\_p - \mathbf x\_{p-1} \\) として
+With \\( V\_p \\) the energy of image \\( p \\), \\( \boldsymbol\tau^+ = \mathbf x\_{p+1} - \mathbf x\_p \\), \\( \boldsymbol\tau^- = \mathbf x\_p - \mathbf x\_{p-1} \\),
 
 $$
 \boldsymbol\tau\_p = \begin{cases}
 \boldsymbol\tau^+ & V\_{p-1} < V\_p < V\_{p+1} \\\\
 \boldsymbol\tau^- & V\_{p+1} < V\_p < V\_{p-1} \\\\
-\Delta V^{\max}\boldsymbol\tau^+ + \Delta V^{\min}\boldsymbol\tau^- & \text{極値で } V\_{p-1} \le V\_{p+1} \\\\
-\Delta V^{\min}\boldsymbol\tau^+ + \Delta V^{\max}\boldsymbol\tau^- & \text{極値で } V\_{p-1} > V\_{p+1}
+\Delta V^{\max}\boldsymbol\tau^+ + \Delta V^{\min}\boldsymbol\tau^- & \text{extremum, } V\_{p-1} \le V\_{p+1} \\\\
+\Delta V^{\min}\boldsymbol\tau^+ + \Delta V^{\max}\boldsymbol\tau^- & \text{extremum, } V\_{p-1} > V\_{p+1}
 \end{cases}
 $$
 
-（\\( \Delta V^{\max/\min} = \max/\min(\lvert V\_{p+1} - V\_p\rvert, \lvert V\_{p-1} - V\_p\rvert) \\)）を規格化して \\( \hat{\boldsymbol\tau}\_p \\) とし、
-最適化に使う勾配を
+(\\( \Delta V^{\max/\min} = \max/\min(\lvert V\_{p+1} - V\_p\rvert, \lvert V\_{p-1} - V\_p\rvert) \\)) is normalized to give \\( \hat{\boldsymbol\tau}\_p \\), and
+the gradient used for the optimization is
 
 $$
 \mathbf G\_p = \mathbf g\_p - (\mathbf g\_p\cdot\hat{\boldsymbol\tau}\_p)\hat{\boldsymbol\tau}\_p - k\left(\lVert\boldsymbol\tau^+\rVert - \lVert\boldsymbol\tau^-\rVert\right)\hat{\boldsymbol\tau}\_p
 $$
 
-とします（\\( \mathbf F^{\mathrm{NEB}}\_p = -\mathbf G\_p \\)）。
+(\\( \mathbf F^{\mathrm{NEB}}\_p = -\mathbf G\_p \\)).
 
-〔規約〕
+[Convention]
 
-- 「極値」は \\( V\_{p+1} \ge V\_p \le V\_{p-1} \\) または \\( V\_{p+1} < V\_p > V\_{p-1} \\) の場合です。
-  \\( V\_p = V\_{p+1} > V\_{p-1} \\) のような等号の組み合わせはどの場合にも当たらず、接線が 0 になって規格化で発散します（11 節）。
-- 固定成分の \\( \mathbf G\_p \\) は 0 にします。勾配は像ごとの SCF の勾配そのもので、総和 0 の補正はしません。
+- An "extremum" is the case \\( V\_{p+1} \ge V\_p \le V\_{p-1} \\) or \\( V\_{p+1} < V\_p > V\_{p-1} \\).
+  Combinations of equalities such as \\( V\_p = V\_{p+1} > V\_{p-1} \\) match none of the cases; the tangent becomes 0 and the normalization diverges (section 11).
+- \\( \mathbf G\_p \\) of fixed components is set to 0. The gradient is the SCF gradient of each image as is, without the zero-sum correction.
 
-### 8.3 最適化〔公開〕〔規約〕
+### 8.3 Optimization [Public] [Convention]
 
-〔公開〕マニュアル 51.3 節、技術ノート：全像の座標をまとめた \\( 3NP \\) 次元のベクトルに対する DIIS と BFGS の混成法です。
+[Public] Manual section 51.3 and the technical note: a hybrid of DIIS and BFGS on the \\( 3NP \\)-dimensional vector collecting the coordinates of all images.
 
-〔規約〕
+[Convention]
 
-- 収束の判定：\\( \max\_{p,I}\lVert\mathbf G\_{p,I}\rVert < \\) `MD.Opt.criterion`（原子ごとのベクトルの大きさ）。
-- \\( n < \\) `MD.Opt.StartDIIS`：最急降下 \\( \mathbf x \leftarrow \mathbf x - s\mathbf G \\)。前因子は基準 \\( s\_0 = (4\ \mathrm{fs})^2/1836.1526 \\) の \\( [0.005s\_0, 10s\_0] \\) に制限し、
-  最初は \\( s = 1/(5\times0.529177249) \\)。\\( \lVert\mathbf G\rVert \\)（全体の Euclid ノルム）が前より増え \\( n \bmod 4 = 1 \\) なら \\( s/4 \\)、
-  2 回続けて減り \\( n \bmod 4 = 1 \\) なら \\( 1.2s \\)。最大変位の制限はありません。
-- \\( n \ge \\) `MD.Opt.StartDIIS`：4.3 節の GDIIS（\\( \mathbf g \\) の代わりに \\( \mathbf G \\)、全像をまとめる）で \\( \tilde{\mathbf x} \\)、\\( \tilde{\mathbf G} \\) を作り、
-  4.5 節の BFGS の逆 Hessian（`MD.Opt.StartDIIS` のステップで \\( I \\)、曲率条件の確認なし）で
-  \\( \mathbf x \leftarrow \tilde{\mathbf x} - f\\, H^{-1}\tilde{\mathbf G} \\)。\\( f \\) は最大の力 \\( F\_{\max} \\) で決めます：
+- Convergence test: \\( \max\_{p,I}\lVert\mathbf G\_{p,I}\rVert < \\) `MD.Opt.criterion` (per-atom vector magnitude).
+- \\( n < \\) `MD.Opt.StartDIIS`: steepest descent \\( \mathbf x \leftarrow \mathbf x - s\mathbf G \\). The prefactor is restricted to \\( [0.005s\_0, 10s\_0] \\) with reference \\( s\_0 = (4\ \mathrm{fs})^2/1836.1526 \\),
+  and initially \\( s = 1/(5\times0.529177249) \\). If \\( \lVert\mathbf G\rVert \\) (Euclidean norm of the whole vector) increased from the previous step and \\( n \bmod 4 = 1 \\), then \\( s/4 \\);
+  if it decreased twice in a row and \\( n \bmod 4 = 1 \\), then \\( 1.2s \\). There is no maximum-displacement limit.
+- \\( n \ge \\) `MD.Opt.StartDIIS`: the GDIIS of section 4.3 (with \\( \mathbf G \\) instead of \\( \mathbf g \\), all images together) builds \\( \tilde{\mathbf x} \\), \\( \tilde{\mathbf G} \\), and with
+  the BFGS inverse Hessian of section 4.5 (\\( I \\) at step `MD.Opt.StartDIIS`, no curvature-condition check),
+  \\( \mathbf x \leftarrow \tilde{\mathbf x} - f\\, H^{-1}\tilde{\mathbf G} \\). \\( f \\) is determined by the maximum force \\( F\_{\max} \\):
 
-| \\( F\_{\max} \\) | \\( >0.7 \\) | \\( >0.3 \\) | \\( >0.1 \\) | \\( >0.05 \\) | \\( >0.02 \\) | \\( >0.01 \\) | \\( >0.005 \\) | \\( >0.002 \\) | \\( >0.001 \\) | それ以下 |
+| \\( F\_{\max} \\) | \\( >0.7 \\) | \\( >0.3 \\) | \\( >0.1 \\) | \\( >0.05 \\) | \\( >0.02 \\) | \\( >0.01 \\) | \\( >0.005 \\) | \\( >0.002 \\) | \\( >0.001 \\) | otherwise |
 |---|---|---|---|---|---|---|---|---|---|---|
 | \\( f \\) | 0.1 | 0.2 | 0.3 | 0.4 | 0.5 | 0.6 | 0.7 | 0.8 | 0.9 | 1.0 |
 
-- 更新量の成分ごとの最大が 0.2 bohr を超えたら、全体を縮めます（構造最適化の 0.5 bohr と異なる）。
-- 端の像は動かしません。`tools/check_geometry_md.py` で、2 次元の模型ポテンシャル上でこの方法が収束し、像の間隔がそろい、最高点の像が鞍点のエネルギーに近づくことを確認しています。
+- If the per-component maximum of the update exceeds 0.2 bohr, the whole update is scaled down (unlike the 0.5 bohr of geometry optimization).
+- The end images are not moved. `tools/check_geometry_md.py` checks, on a 2D model potential, that this method converges, the image spacing becomes uniform, and the highest image approaches the saddle-point energy.
 
-### 8.4 並列化・出力・再開〔公開〕〔規約〕
+### 8.4 Parallelization, output, restart [Public] [Convention]
 
-〔公開〕マニュアル 51.3・51.4・51.7 節：
+[Public] Manual sections 51.3, 51.4, 51.7:
 
-- `MD.NEB.Parallel.Number` は像を割り当てる MPI プロセスの群の数です。指定しない場合、まず像について並列化し、プロセスが像より多いときに各像の中も並列化します。
-  1 にすると像の並列化をせず、全プロセスで像を 1 つずつ計算します（メモリーが最小）。〔規約〕群の数がプロセス数か像の数を超える場合は自動（0）に戻します。
-- `System.Name.neb.opt`：最適化の履歴（反復、SD の前因子、最大の力、最大変位、\\( \lVert\mathbf G\rVert \\)、像のエネルギーの和）。
-  〔規約〕最大変位の列は見出しが Å ですが、値は bohr です。
-- `System.Name.neb.ene`：像ごとの「番号（0 と \\( P+1 \\) が端）、全エネルギー、隣の像との距離、端からの累積距離」。
-  〔規約〕2・3 列目は見出しでは距離（bohr）ですが、値は **距離の 2 乗**（bohr²）とその累積です。さらに 5 列目に、原子 2 と原子 1 の x 座標の差（Å）が出ます。
-- `System.Name.neb.xyz`：各像の座標（XYZ 形式、見出し行に像の番号とエネルギー）。〔規約〕`System.Name.neb.md` も書かれ、形式は `.md`（10 節）と同じで、力の列は \\( -\mathbf G\_p \\)、速度の列は 0 です。
-- `System.Name.dat#`：全像の座標（`NEBp.Atoms.SpeciesAndCoordinates`）と `scf.restart on` を含む再開用の入力。
-  〔規約〕両端のエネルギーは `System.Name_0_rst/` に保存され、再開時は両端の SCF を省きます。
+- `MD.NEB.Parallel.Number` is the number of MPI process groups to which images are assigned. If not specified, parallelization is first over images, and when there are more processes than images, each image is also parallelized internally.
+  Setting it to 1 disables image parallelization, and all processes compute images one at a time (minimum memory). [Convention] If the number of groups exceeds the number of processes or the number of images, it reverts to automatic (0).
+- `System.Name.neb.opt`: optimization history (iteration, SD prefactor, maximum force, maximum displacement, \\( \lVert\mathbf G\rVert \\), sum of image energies).
+  [Convention] The header of the maximum-displacement column says Å, but the values are in bohr.
+- `System.Name.neb.ene`: per image, "index (0 and \\( P+1 \\) are the end points), total energy, distance to the neighboring image, cumulative distance from the end".
+  [Convention] Columns 2 and 3 are distances (bohr) according to the header, but the values are the **squared distance** (bohr²) and its cumulative sum. In addition, a 5th column gives the difference in x coordinate between atom 2 and atom 1 (Å).
+- `System.Name.neb.xyz`: coordinates of each image (XYZ format; the header line has the image index and energy). [Convention] `System.Name.neb.md` is also written, in the same format as `.md` (section 10), with the force columns \\( -\mathbf G\_p \\) and velocity columns 0.
+- `System.Name.dat#`: restart input containing the coordinates of all images (`NEBp.Atoms.SpeciesAndCoordinates`) and `scf.restart on`.
+  [Convention] The energies of the end points are saved in `System.Name_0_rst/`, and the end-point SCFs are skipped on restart.
 
-## 9. SCF との関係〔規約〕
+## 9. Relation to the SCF [Convention]
 
-- ステップ間で引き継ぐもの：前のステップの密度（再開）、密度の外挿の履歴（[密度行列と電荷ミキシング](density-mixing.md) 6・7 節）、
-  格子の原点（[実空間グリッド](grid-poisson-xc.md) 1.4 節）。ミキシングの重みは各ステップの最初に `scf.Max.Mixing.Weight` に戻します（同章 4 節）。
-- 各ステップで、原子の移動に合わせて原子対の集合（[疎ブロック形式](../design/sparse-block-format.md)）と、
-  二中心積分などの行列要素を作り直します。格子の最適化と `DF` では、実空間格子の分割数を最初のステップの値に固定し、
-  格子ベクトルの変化に合わせて刻み幅だけを変えます（実効的なカットオフが変わる）。NPT での扱いは〔未確定〕です。
-- SCF が収束しなかったステップでも、そのときの力で更新を続けます。`.md` の見出し行の `scf_conv=` が 0 になります。
-- 力は SCF の最後の密度行列での解析的な微分です（[全エネルギーと力](energy-force.md)）。MD の保存則の精度は SCF の収束判定に依存するので、MD では `scf.criterion` を十分小さくします。
+- Carried over between steps: the density of the previous step (restart), the history for density extrapolation ([Density matrix and charge mixing](density-mixing.md) sections 6 and 7),
+  and the grid origin ([Real-space grid](grid-poisson-xc.md) section 1.4). The mixing weight is reset to `scf.Max.Mixing.Weight` at the start of each step (section 4 of the same chapter).
+- At each step, the set of atom pairs ([sparse block format](../design/sparse-block-format.md)) and
+  matrix elements such as two-center integrals are rebuilt to follow the atomic motion. In lattice optimization and `DF`, the number of real-space grid divisions is fixed to that of the first step,
+  and only the grid spacing changes with the lattice vectors (the effective cutoff changes). The treatment in NPT is [Open].
+- Even at steps where the SCF did not converge, the update continues with the forces at that point. `scf_conv=` in the `.md` header line becomes 0.
+- Forces are analytic derivatives at the final density matrix of the SCF ([Total energy and forces](energy-force.md)). The accuracy of conservation in MD depends on the SCF convergence criterion, so in MD `scf.criterion` should be made sufficiently small.
 
-## 10. 出力ファイル〔公開〕〔規約〕
+## 10. Output files [Public] [Convention]
 
 ### `.md`
 
-〔公開〕マニュアル 18.6 節：ステップごとに「原子数」の行、見出し行、原子ごとの行（14 列）のブロックが続きます。
-見出し行には自由な文字列の後に `Cell_Vectors=`（\\( \mathbf a\_1,\mathbf a\_2,\mathbf a\_3 \\) の x, y, z の 9 個、Å）と `scf_conv=`（1 で SCF 収束）が付きます。
-原子の行は「元素記号、x、y、z（Å）、\\( F\_x, F\_y, F\_z \\)（Hartree/bohr）、\\( v\_x, v\_y, v\_z \\)（m/s）、正味の電荷（電子の電荷を負とする）、磁気モーメント（\\( \mu\_B \\)）、スピンの向きの角度 \\( \theta, \phi \\)（度）」です。
+[Public] Manual section 18.6: for each step, a block consisting of a "number of atoms" line, a header line, and per-atom lines (14 columns).
+After a free-form string, the header line carries `Cell_Vectors=` (the 9 x, y, z values of \\( \mathbf a\_1,\mathbf a\_2,\mathbf a\_3 \\), Å) and `scf_conv=` (1 if the SCF converged).
+Each atom line is "element symbol, x, y, z (Å), \\( F\_x, F\_y, F\_z \\) (Hartree/bohr), \\( v\_x, v\_y, v\_z \\) (m/s), net charge (electron charge taken as negative), magnetic moment (\\( \mu\_B \\)), spin-direction angles \\( \theta, \phi \\) (degrees)".
 
-〔規約〕
+[Convention]
 
-- 見出し行の自由な部分：MD（`NVE`、`NVT_VS`、`NVT_NH`、`NVT_VS2`、`NVT_Langevin`、`NPT_*`）では
-  `time= `（\\( (n-1)\Delta t \\)、fs）、`Energy= `（`Utot`）、`Temperature= `、`(Given Temp.= ` \\( T\_0 \\)`)`。
-  `NVT_VS4` では温度の代わりに群ごとの `Temperature[g]= `。それ以外（構造最適化など）は `time=` と `Energy=` だけ。
-- `.md` は SCF の直後、座標の更新の **前** に書くので、座標と力は同じ構造に対応します。速度の列は、その時点で保持している速度
-  （`NVE` では半ステップの \\( \mathbf v\_{n-1/2} \\)、`NVT_VS` 系では前のステップの更新後の \\( \mathbf u \\)）です。
-  構造最適化と `NPT_*` では速度の列は 0 です。温度は 2 節の \\( T\_B \\)（`NPT_*` と `NVT_VS4` を除く）。
-- 力の列は、MD の総和 0 の補正の **前** の値です（補正は `.md` の書き出しの後に行う）。
-- 正味の電荷と磁気モーメントは原子ごとの電子数（上向き・下向き）から計算されますが、どの段階の値（初期配置か、SCF 後の電荷解析か）かは〔未確定〕です。照合の対象から外します〔設計〕。
-- `System.Name.md2` には最後のステップの構造だけが書かれます（上書き）。
+- Free-form part of the header line: for MD (`NVE`, `NVT_VS`, `NVT_NH`, `NVT_VS2`, `NVT_Langevin`, `NPT_*`),
+  `time= ` (\\( (n-1)\Delta t \\), fs), `Energy= ` (`Utot`), `Temperature= `, `(Given Temp.= ` \\( T\_0 \\)`)`.
+  For `NVT_VS4`, per-group `Temperature[g]= ` instead of the temperature. Otherwise (geometry optimization, etc.), only `time=` and `Energy=`.
+- `.md` is written right after the SCF, **before** the coordinate update, so the coordinates and forces correspond to the same structure. The velocity columns are the velocity held at that point
+  (the half-step \\( \mathbf v\_{n-1/2} \\) for `NVE`; \\( \mathbf u \\) after the update of the previous step for the `NVT_VS` family).
+  For geometry optimization and `NPT_*`, the velocity columns are 0. The temperature is \\( T\_B \\) of section 2 (except for `NPT_*` and `NVT_VS4`).
+- The force columns are the values **before** the MD zero-sum correction (the correction is applied after writing `.md`).
+- The net charge and magnetic moment are computed from the per-atom electron numbers (up and down), but at which stage these values are taken (initial configuration, or charge analysis after SCF) is [Open]. They are excluded from comparison [Design].
+- `System.Name.md2` contains only the structure of the last step (overwritten).
 
 ### `.ene`
 
-〔規約〕`MD.Type` が `NOMD`、構造最適化、格子の最適化、`EvsLC`、`DF`、`NVE`、`NVT_*` のとき、ステップごとに 1 行を追記します（34 列、空白区切り）。
-再実装との互換に必要な列は次のとおりです。それ以外の列は既存実装の内部の量で、照合の対象にしません。
+[Convention] When `MD.Type` is `NOMD`, geometry optimization, lattice optimization, `EvsLC`, `DF`, `NVE`, or `NVT_*`, one line is appended per step (34 columns, space-separated).
+The columns required for compatibility with a reimplementation are as follows. The other columns are internal quantities of the existing implementation and are not compared.
 
-| 列 | 内容 |
+| Column | Content |
 |---|---|
-| 1 | ステップ \\( n \\) |
-| 2 | 時刻 \\( (n-1)\Delta t \\)（fs。構造最適化でも `MD.TimeStep` を使って書く） |
-| 14 | `Ukc`（Hartree） |
-| 15 | `Utot`（Hartree） |
+| 1 | step \\( n \\) |
+| 2 | time \\( (n-1)\Delta t \\) (fs; written using `MD.TimeStep` even for geometry optimization) |
+| 14 | `Ukc` (Hartree) |
+| 15 | `Utot` (Hartree) |
 | 16 | `Utot` + `Ukc` |
-| 17 | 化学ポテンシャル（Hartree）。32 列目も同じ |
-| 18 | 目標温度 \\( T\_0 \\)（K） |
-| 19 | 温度 \\( T\_A \\)（K） |
-| 20、21、22 | \\( \zeta \\)、\\( \zeta' \\)、Nosé–Hoover の保存量（`NVT_NH`） |
-| 23–25、26 | \\( \mathbf a\_1 \\) の x, y, z と \\( \mathbf a\_3 \\) の z（Å） |
-| 30 | 最大の力（そのステップの方式での定義、4.1 節） |
-| 31 | 全スピン磁気モーメントの 2 倍 |
+| 17 | chemical potential (Hartree). Column 32 is the same |
+| 18 | target temperature \\( T\_0 \\) (K) |
+| 19 | temperature \\( T\_A \\) (K) |
+| 20, 21, 22 | \\( \zeta \\), \\( \zeta' \\), Nosé–Hoover conserved quantity (`NVT_NH`) |
+| 23–25, 26 | x, y, z of \\( \mathbf a\_1 \\) and z of \\( \mathbf a\_3 \\) (Å) |
+| 30 | maximum force (definition of the method of that step, section 4.1) |
+| 31 | twice the total spin magnetic moment |
 
-〔公開〕マニュアル 20.1 節は 1、2、14–17 列を説明しています。
+[Public] Manual section 20.1 explains columns 1, 2, and 14–17.
 
-### その他
+### Others
 
-- `System.Name.out`：構造最適化の各ステップの「反復、前因子、最大の力、最大変位（Å）、`Utot`」（格子の最適化では `Enpy` と体積（Å³）が加わる。マニュアル 19.4 節）が
-  「History of geometry optimization」／「History of cell optimization」の表として、
-  最後の構造の座標と力が `<coordinates.forces` ブロックとして含まれます。〔規約〕準 Newton 法の行の前因子の列は最急降下の前因子のままです（意味を持たない）。
-- `System.Name.npt.ene`：6.7 節。`System.Name.neb.*`：8.4 節。`System.Name.EvsLC`、`System.Name.DF`：5.5 節。
-- `System.Name.dat#`：4.11・6.8・8.4 節。
+- `System.Name.out`: contains, for each step of geometry optimization, "iteration, prefactor, maximum force, maximum displacement (Å), `Utot`" (for lattice optimization, `Enpy` and volume (Å³) are added; manual section 19.4)
+  as the table "History of geometry optimization" / "History of cell optimization",
+  and the coordinates and forces of the last structure as the `<coordinates.forces` block. [Convention] The prefactor column in quasi-Newton rows remains the steepest-descent prefactor (meaningless).
+- `System.Name.npt.ene`: section 6.7. `System.Name.neb.*`: section 8.4. `System.Name.EvsLC`, `System.Name.DF`: section 5.5.
+- `System.Name.dat#`: sections 4.11, 6.8, 8.4.
 
-## 11. 端の場合〔規約〕
+## 11. Edge cases [Convention]
 
-- `MD.maxIter` = 1（既定）では、構造最適化・MD を指定しても 1 回の SCF だけで終わります（座標は更新しない）。
-- 構造最適化の最初のステップで既に収束していれば、そのまま終わります。
-- GDIIS の係数行列が特異（例：同じ勾配が 2 回続いた）だと「収束」として終わります（4.1 節）。
-- 曲率条件の破れ：`RF` は分母を \\( 10^{-10} \\) に置き換えて更新を続け、`BFGS` と NEB は無条件に更新し（分母が 0 に近いと発散）、`EF` は更新を飛ばします。
-- `Schlegel` の Hessian で \\( r \le B \\) の原子対があると、負の曲率や発散が生じます。
-- 熱浴付きの MD を乱数の初速度で始め、固定成分がある場合、固定成分の速度が 0 にならず、`NVT_VS` の温度に入り続けます。
-- `NVT_VS2` で全成分が固定された原子は \\( T\_I = 0 \\) でスケーリング係数が定義されません（掛ける成分がないので結果には影響しない）。
-- `NVT_NH` で `MD.TempControl` の最初のステップが 1 より大きい場合、\\( n = 1 \\) の予測で使う目標温度は未設定（0 と同じ）です。
-- NEB で隣り合う像のエネルギーが等しいと、接線が定義されないことがあります（8.2 節）。
-- `MD.CellPressureControl` の範囲を超えた NPT のステップでは外圧が未定義です（6.7 節）。
-- 原子がちょうど分数座標 1 にある場合は折り返されません（7 節）。
+- With `MD.maxIter` = 1 (default), even if geometry optimization or MD is specified, the run ends after a single SCF (coordinates are not updated).
+- If geometry optimization is already converged at the first step, the run ends there.
+- If the GDIIS coefficient matrix is singular (e.g. the same gradient twice in a row), the run ends as "converged" (section 4.1).
+- Violation of the curvature condition: `RF` replaces the denominator by \\( 10^{-10} \\) and continues updating; `BFGS` and NEB update unconditionally (diverging if the denominator is near 0); `EF` skips the update.
+- If the `Schlegel` Hessian has an atom pair with \\( r \le B \\), negative curvature or divergence occurs.
+- If MD with a thermostat starts from random initial velocities and there are fixed components, the velocities of fixed components are not 0 and keep entering the `NVT_VS` temperature.
+- In `NVT_VS2`, for an atom with all components fixed, \\( T\_I = 0 \\) and the scaling factor is undefined (there are no components to multiply, so the result is not affected).
+- In `NVT_NH`, if the first step of `MD.TempControl` is greater than 1, the target temperature used in the prediction at \\( n = 1 \\) is unset (same as 0).
+- In NEB, if neighboring images have equal energies, the tangent may be undefined (section 8.2).
+- In NPT steps beyond the range of `MD.CellPressureControl`, the external pressure is undefined (section 6.7).
+- An atom exactly at fractional coordinate 1 is not wrapped (section 7).
 
-## 実装への要求〔設計〕
+## Requirements for implementations [Design]
 
-- **構成**：「力・応力を返す計算器」と「状態を進める積分器・最適化器」を分けます。積分器・最適化器は
-  \\( (\mathbf x, A, \mathbf g, \Sigma, U) \\) と自分の状態（速度、熱浴、履歴、Hessian）だけを受け取る純粋な関数にし、
-  SCF・格子・ファイル入出力に依存させません。これにより、解析的な模型ポテンシャルで単体試験ができます。
-- **状態の保存**：最適化器・積分器の状態を 1 つの構造体として直列化し、再開ファイルに書きます（既存実装の `_rst` ディレクトリの形式に合わせる必要はない）。
-  再開した計算が、途切れずに計算した場合とステップごとに一致することを試験します。
-- **既定の方式と互換モード**：次の点で、既存実装と挙動が異なる「推奨」と、既存実装に合わせる「互換」を切り替えられるようにします。
+- **Structure**: separate the "calculator that returns forces and stress" from the "integrator/optimizer that advances the state". Make the integrator/optimizer a pure function that receives only
+  \\( (\mathbf x, A, \mathbf g, \Sigma, U) \\) and its own state (velocities, thermostat, history, Hessian),
+  with no dependence on the SCF, grid, or file I/O. This enables unit tests with analytic model potentials.
+- **State saving**: serialize the optimizer/integrator state as a single structure and write it to the restart file (there is no need to match the format of the existing implementation's `_rst` directory).
+  Test that a restarted calculation agrees step by step with an uninterrupted calculation.
+- **Default method and compatibility mode**: on the following points, allow switching between "recommended", which behaves differently from the existing implementation, and "compatible", which matches it.
 
-| 項目 | 推奨（既定） | 互換 |
+| Item | Recommended (default) | Compatible |
 |---|---|---|
-| 速度スケーリングの積分 | 速度 Verlet ＋ スケーリング | 6.4 節の形 |
-| 速度の平均の除去 | 全運動量を 0（質量の重み付き） | 単純平均 |
-| RF の BFGS で曲率条件が破れたとき | 更新を飛ばす | 分母を \\( 10^{-10} \\) に |
-| GDIIS が特異なとき | 履歴を捨てて継続 | 収束扱いで終了 |
-| NPT の NH の保存量 | 実際の運動方程式に対応する量 | \\( \tfrac12 Q\zeta^2 \\) を使う |
-| WV の \\( \dot F \\) | \\( \dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j + \boldsymbol\sigma\_i\cdot\dot{\boldsymbol\sigma}\_j \\) | \\( 2\dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j \\) |
-| 孤立系での折り返し | しない | する |
-| `.neb.ene` の距離 | 距離 | 距離の 2 乗 |
+| Integration with velocity scaling | velocity Verlet + scaling | form of section 6.4 |
+| Removal of velocity average | zero total momentum (mass-weighted) | simple average |
+| Curvature violation in RF's BFGS | skip the update | denominator set to \\( 10^{-10} \\) |
+| Singular GDIIS | discard history and continue | end as converged |
+| NPT NH conserved quantity | quantity corresponding to the actual equations of motion | uses \\( \tfrac12 Q\zeta^2 \\) |
+| WV \\( \dot F \\) | \\( \dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j + \boldsymbol\sigma\_i\cdot\dot{\boldsymbol\sigma}\_j \\) | \\( 2\dot{\boldsymbol\sigma}\_i\cdot\boldsymbol\sigma\_j \\) |
+| Wrapping in isolated systems | no | yes |
+| Distances in `.neb.ene` | distance | squared distance |
 
-- **温度の定義**：\\( T = 2K/(k\_B N\_{\mathrm{dof}}) \\) を一つの関数にし、\\( N\_{\mathrm{dof}} \\) を「\\( 3N \\)」「自由成分の数」「自由成分の数 − 3（重心の拘束）」から選べるようにします。出力ごとにどれを使うかは表で管理します（2 節）。
-- **乱数**：Langevin と初速度の乱数は、種を入力で指定できる、環境に依存しない生成器にします。
-- **単位**：入力・出力の換算係数は 2 節の値を一か所に定義します。
-- **拘束**：固定フラグを、デカルト成分（原子座標の最適化・MD）と分数成分（`RFC*`）の 2 種類として型で区別します。
-- **NEB**：像ごとの SCF を独立に呼べるようにし（並列化は外側の責任）、端点の SCF の結果を保存・再利用します。周期系では、端点の座標を最小像で対応付ける前処理を選択肢として持ちます。
+- **Temperature definition**: make \\( T = 2K/(k\_B N\_{\mathrm{dof}}) \\) a single function, with \\( N\_{\mathrm{dof}} \\) selectable from "\\( 3N \\)", "number of free components", and "number of free components − 3 (center-of-mass constraint)". Which one each output uses is managed by a table (section 2).
+- **Random numbers**: for Langevin and initial velocities, use an environment-independent generator whose seed can be specified in the input.
+- **Units**: define the input/output conversion factors of section 2 in one place.
+- **Constraints**: distinguish fixed flags by type into two kinds: Cartesian components (atomic-coordinate optimization, MD) and fractional components (`RFC*`).
+- **NEB**: make the SCF of each image callable independently (parallelization is the responsibility of the outer layer), and save and reuse the SCF results of the end points. For periodic systems, provide as an option a preprocessing step that matches end-point coordinates by the minimum image.
 
-## テスト〔設計〕
+## Tests [Design]
 
-`tools/check_geometry_md.py` で、下の「解析」「不変量」の項目のうち、模型で書けるものを確認しています。
+`tools/check_geometry_md.py` checks those items in the "Analytic" and "Invariant" rows below that can be written with models.
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Typical tolerance |
 |---|---|---|
-| 解析 | 単位換算（fs、u、m/s、GPa）と独立な定数からの値 | 相対 \\( 10^{-5} \\)（GPa は \\( 10^{-4} \\)） |
-| 解析 | 調和振動子の速度 Verlet：エネルギー誤差が有界で、\\( \Delta t \\) を半分にすると 1/4 | 比 \\( 4 \pm 0.2 \\) |
-| 解析 | 6.4 節の積分の特性根 \\( \lvert z\rvert = \sqrt{1-(\omega\Delta t)^2/2} \\) と、シミュレーションでのエネルギーの減衰率 | 減衰率の相対 5% |
-| 解析 | Nosé–Hoover（6.5 節の離散化）：拡張系のエネルギーの変動が \\( O(\Delta t^2) \\) | 比 \\( 4 \pm 1 \\)、変動は \\( 0.05\\,k\_BT \\) 以下（\\( \Delta t = 0.5 \\) fs） |
-| 解析 | NPT_NH 型の熱浴：保存量が \\( \tfrac32 Q\zeta^2 \\) を含む（高精度の常微分方程式の解で） | \\( 10^{-6}\\,k\_BT \\) |
-| 解析 | 速度スケーリング後の温度が \\( T\_0 + (T-T\_0)\alpha \\) | \\( 10^{-9} \\) K |
-| 解析 | GDIIS の係数：縁付き方程式と閉じた形 | \\( 10^{-10} \\) |
-| 解析 | BFGS の割線条件 \\( H\_{\mathrm{new}}\Delta\mathbf x = \Delta\mathbf g \\)、\\( H^{-1}\_{\mathrm{new}}\Delta\mathbf g = \Delta\mathbf x \\)、両者が互いに逆行列 | \\( 10^{-9} \\) |
-| 解析 | RF の拡大 Hessian の固有ベクトルの step が \\( -(H-\lambda)^{-1}\mathbf g \\)、\\( \lambda = \mathbf g\cdot\Delta\mathbf x < \lambda\_{\min}(H) \\) | \\( 10^{-10} \\) |
-| 解析 | 2 次関数（9 次元）で `Opt`、`DIIS`、`BFGS`、`RF`、`EF` がすべて `MD.Opt.criterion` まで収束 | 収束すること |
-| 解析 | \\( S = \Omega A^{-\mathsf T} \\)、\\( \partial\Omega/\partial A = S \\) | \\( 10^{-7} \\) |
-| 解析 | NEB：2 次元の模型で収束し、像の間隔の相対標準偏差が小さく、最高点が鞍点のエネルギーに近い | 2%、0.05 |
-| 不変量 | 初速度の全運動量が 0、温度が \\( T\_1 \\) | \\( 10^{-12} \\) |
-| 不変量 | モデル Hessian が対称で、原子対の部分が並進で 0 | \\( 10^{-12} \\) |
-| 不変量 | 折り返し：\\( s = 1.25 \to 0.25 \\)、\\( -0.25 \to 0.75 \\)、\\( 1.0 \\) は保持 | 厳密 |
-| 不変量 | 構造最適化で、固定成分の座標がビット単位で変わらない | 厳密 |
-| 不変量 | 再開：\\( n \\) ステップで止めて `.dat#` から再開した計算と、続けて計算した場合の座標・速度（同じ方式・同じ乱数の種） | \\( 10^{-10} \\) bohr（SCF の初期密度が同じ場合） |
-| 不変量 | NVE の実 DFT 計算（H₂O 分子、\\( \Delta t = 0.5 \\) fs、`scf.criterion` \\( 10^{-10} \\)）で `Utot` + `Ukc` の変動 | 100 ステップで \\( 10^{-4} \\) Hartree 程度（傾向の確認） |
-| 照合 | 既存実装の fixture：同じ初期構造・同じ力の列（力を記録したもの）を与えたとき、`Opt`、`DIIS`、`BFGS`、`RF`、`EF` の 1 ステップの更新量 | \\( 10^{-8} \\) bohr |
-| 照合 | 同様に、`NVE`、`NVT_VS`（互換モード）、`NVT_NH` の 1 ステップの座標・速度・\\( \zeta \\) | \\( 10^{-10} \\)（相対） |
-| 照合 | `OptC1`、`OptC5`、`RFC5` の 1 ステップの格子と座標（応力と力を与えて） | \\( 10^{-8} \\) bohr |
-| 照合 | `Schlegel` の初期 Hessian（H₂O、Si 結晶） | \\( 10^{-10} \\) |
-| 回帰 | H₂O 分子の `RF` 最適化：収束した構造（結合長・角度）と反復回数 | 結合長 \\( 10^{-3} \\) Å、角度 0.1°、反復回数は目安 |
-| 回帰 | Si 結晶の `RFC5`：収束した格子定数 | \\( 10^{-3} \\) Å |
-| 回帰 | NEB：マニュアルの例（C₂H₄ の回転など）で障壁の高さ | 10 meV |
+| Analytic | unit conversions (fs, u, m/s, GPa) and values from independent constants | relative \\( 10^{-5} \\) (\\( 10^{-4} \\) for GPa) |
+| Analytic | velocity Verlet for a harmonic oscillator: energy error bounded, and 1/4 when \\( \Delta t \\) is halved | ratio \\( 4 \pm 0.2 \\) |
+| Analytic | characteristic roots \\( \lvert z\rvert = \sqrt{1-(\omega\Delta t)^2/2} \\) of the integration of section 6.4, and the energy decay rate in simulation | relative 5% on the decay rate |
+| Analytic | Nosé–Hoover (discretization of section 6.5): fluctuation of the extended-system energy is \\( O(\Delta t^2) \\) | ratio \\( 4 \pm 1 \\), fluctuation at most \\( 0.05\\,k\_BT \\) (\\( \Delta t = 0.5 \\) fs) |
+| Analytic | NPT_NH-type thermostat: the conserved quantity contains \\( \tfrac32 Q\zeta^2 \\) (with a high-accuracy ODE solution) | \\( 10^{-6}\\,k\_BT \\) |
+| Analytic | temperature after velocity scaling is \\( T\_0 + (T-T\_0)\alpha \\) | \\( 10^{-9} \\) K |
+| Analytic | GDIIS coefficients: bordered equation vs. closed form | \\( 10^{-10} \\) |
+| Analytic | BFGS secant conditions \\( H\_{\mathrm{new}}\Delta\mathbf x = \Delta\mathbf g \\), \\( H^{-1}\_{\mathrm{new}}\Delta\mathbf g = \Delta\mathbf x \\), and the two being mutual inverses | \\( 10^{-9} \\) |
+| Analytic | RF: the step from the eigenvector of the augmented Hessian is \\( -(H-\lambda)^{-1}\mathbf g \\), \\( \lambda = \mathbf g\cdot\Delta\mathbf x < \lambda\_{\min}(H) \\) | \\( 10^{-10} \\) |
+| Analytic | on a quadratic function (9 dimensions), `Opt`, `DIIS`, `BFGS`, `RF`, `EF` all converge to `MD.Opt.criterion` | converges |
+| Analytic | \\( S = \Omega A^{-\mathsf T} \\), \\( \partial\Omega/\partial A = S \\) | \\( 10^{-7} \\) |
+| Analytic | NEB: on a 2D model, converges, the relative standard deviation of image spacings is small, and the highest point is close to the saddle-point energy | 2%, 0.05 |
+| Invariant | initial velocities have zero total momentum and temperature \\( T\_1 \\) | \\( 10^{-12} \\) |
+| Invariant | the model Hessian is symmetric, and its pair part is 0 on translations | \\( 10^{-12} \\) |
+| Invariant | wrapping: \\( s = 1.25 \to 0.25 \\), \\( -0.25 \to 0.75 \\), \\( 1.0 \\) kept | exact |
+| Invariant | in geometry optimization, coordinates of fixed components are bitwise unchanged | exact |
+| Invariant | restart: coordinates and velocities of a calculation stopped at \\( n \\) steps and restarted from `.dat#` vs. a continuous calculation (same method, same random seed) | \\( 10^{-10} \\) bohr (when the SCF initial density is the same) |
+| Invariant | fluctuation of `Utot` + `Ukc` in an NVE real DFT calculation (H₂O molecule, \\( \Delta t = 0.5 \\) fs, `scf.criterion` \\( 10^{-10} \\)) | about \\( 10^{-4} \\) Hartree over 100 steps (trend check) |
+| Comparison | existing-implementation fixture: given the same initial structure and the same sequence of forces (recorded forces), the one-step update of `Opt`, `DIIS`, `BFGS`, `RF`, `EF` | \\( 10^{-8} \\) bohr |
+| Comparison | likewise, the one-step coordinates, velocities, and \\( \zeta \\) of `NVE`, `NVT_VS` (compatibility mode), `NVT_NH` | \\( 10^{-10} \\) (relative) |
+| Comparison | one-step lattice and coordinates of `OptC1`, `OptC5`, `RFC5` (given stress and forces) | \\( 10^{-8} \\) bohr |
+| Comparison | `Schlegel` initial Hessian (H₂O, Si crystal) | \\( 10^{-10} \\) |
+| Regression | `RF` optimization of the H₂O molecule: converged structure (bond lengths, angle) and number of iterations | bond length \\( 10^{-3} \\) Å, angle 0.1°, iteration count indicative |
+| Regression | `RFC5` for Si crystal: converged lattice constant | \\( 10^{-3} \\) Å |
+| Regression | NEB: barrier height for the manual's example (rotation of C₂H₄, etc.) | 10 meV |
 
-照合のための fixture は、既存実装に「力を外から与える」経路がないため、SCF を含む小さな系で 2–3 ステップ実行し、
-各ステップの座標・力・応力（`.md`、`.out`）を記録したものから、1 ステップの更新を再現する形で作ります。
+Since the existing implementation has no path for "supplying forces externally", the comparison fixtures are built by running a small system including SCF for 2–3 steps,
+recording the coordinates, forces, and stress of each step (`.md`, `.out`), and reproducing the one-step update from them.
 
-## 〔未確定〕
+## [Open]
 
-- `MD.Opt.Init.Hessian FF`（力場の当てはめによる初期 Hessian）の式。公開資料に記載がなく、使用例も見当たらないため、再実装の対象外とする案。
-- `RFC5`–`RFC7` の `Schlegel` 初期 Hessian の、格子どうし・原子と格子の間の部分の正確な式（収束の経路だけに影響）。
-- NEB での `MD.Opt.DIIS.History` の実効的な既定値。NEB の入力の読み込みは 3 を既定にしますが、各像の SCF の入力処理で 2 に上書きされるように見え、実行して確認する必要があります。
-- WV の `Ubaro`（`.npt.ene` の 8 列目）の定義と、`NPT.WV.F0` の用途（運動方程式には使われていない）。
-- `.ene` の 3–13 列、27–29 列、33–34 列の意味（内部の量。互換の対象にするか）。
-- NPT で `MD.Fixed.XYZ` を与えた場合の挙動（マニュアルは併用不可とするが、入力の検査はない）。
-- 本家 OpenMX（CPU 版）との差：参照したのは GPU 版の派生で、`NVT_VS` 系の積分の形（6.4 節）や既定値が本家でも同じかは未確認です。
-- `Langevin.Friction.Factor` の単位（原子単位の時間の逆数と判断したが、公開資料の裏付けがない）。
+- The formula of `MD.Opt.Init.Hessian FF` (initial Hessian by force-field fitting). It is not described in the public documents and no usage example has been found, so the proposal is to exclude it from the reimplementation.
+- The exact formula for the lattice-lattice and atom-lattice parts of the `Schlegel` initial Hessian for `RFC5`–`RFC7` (affects only the convergence path).
+- The effective default of `MD.Opt.DIIS.History` in NEB. The NEB input reader uses 3 as the default, but it appears to be overwritten with 2 by the input processing of each image's SCF; this needs to be confirmed by running it.
+- The definition of the WV `Ubaro` (column 8 of `.npt.ene`) and the purpose of `NPT.WV.F0` (not used in the equations of motion).
+- The meaning of columns 3–13, 27–29, and 33–34 of `.ene` (internal quantities; whether to make them compatibility targets).
+- Behavior when `MD.Fixed.XYZ` is given with NPT (the manual says they cannot be combined, but there is no input check).
+- Differences from upstream OpenMX (CPU version): what was consulted is a derivative of the GPU version, and it is unconfirmed whether the form of the `NVT_VS`-family integration (section 6.4) and the defaults are the same upstream.
+- The unit of `Langevin.Friction.Factor` (judged to be the inverse of the atomic time unit, but without support from the public documents).

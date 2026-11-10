@@ -1,38 +1,52 @@
-# クリーンルーム実装の手順
+# Clean-room procedure
 
-## 役割
+This procedure applies whenever a specification draws on a **reference code** whose license
+does not allow its code to be reused under MIT/Apache-2.0 (GPL codes such as OpenMX,
+Quantum ESPRESSO, ABINIT, GPAW, Elk; proprietary codes such as WIEN2k).
+For permissively licensed references (e.g. SIRIUS, FLEUR, dftatom; see
+[Prior art](../substrate/prior-art.md)) the procedure is not required, but their license
+and copyright notices must be respected and recorded in the chapter that uses them.
 
-| 役割 | 読んでよいもの | 読んではいけないもの | 成果物 |
+## Roles
+
+| Role | May read | Must not read | Output |
 |---|---|---|---|
-| 記述者 | OpenMX のソースコード、公開資料、実行結果 | — | このノートの〔規約〕節、fixture |
-| 検査者 | このノート、OpenMX のソースコード | — | ノートにコード由来の表現が混入していないことの確認 |
-| 実装者 | このノート、公開資料（論文・技術ノート・マニュアル）、fixture | OpenMX のソースコード（派生版を含む） | 新しい実装 |
+| Spec writer | The reference code, public documents, execution results | — | [Convention] sections of this book, fixtures |
+| Reviewer | This book, the reference code | — | Confirmation that no code-derived expression has leaked into the book |
+| Implementer | This book, public documents (papers, technical notes, manuals), fixtures | The reference code (including derived versions) | The new implementation |
 
-- 記述者と実装者は別の人（または別の agent セッション）とします。同じ人が両方を担当すると、
-  実装がコードに依拠していないことを示すのが難しくなります。
-- agent を使う場合、実装者のセッションには OpenMX のリポジトリを置かず、
-  ネットワークアクセスも公開資料のサイトに限ります。セッションの記録を残します。
-- 検査者は AI agent でも構いません。その場合、記述したセッションとは別の新しいセッションで、
-  章ごとにノートと OpenMX のソースコード・公開資料を突き合わせて検査し、結果を記録します。
-- 実装者が仕様の不足に気づいた場合は、このリポジトリに issue を立て、記述者がノートを更新します。
-  実装者が自分でコードを調べてはいけません。
+- The spec writer and the implementer are different people (or different agent sessions).
+  If the same person does both, it is hard to show that the implementation does not depend on the code.
+- When agents are used, the implementer's session has no checkout of the reference code, and its
+  network access is limited to the sites of public documents. Session logs are kept.
+- The reviewer may be an AI agent. In that case it runs in a fresh session, separate from the one
+  that wrote the chapter, compares the chapter with the reference code and public documents,
+  and records the result.
+- If the implementer finds the specification insufficient, they open an issue in this repository and
+  the spec writer updates the book. The implementer does not inspect the reference code.
 
-## 流れ
+## Flow
 
-1. 記述者が、公開資料から式と手法を整理する（〔公開〕）。
-2. 記述者が、公開資料にない規約・数値パラメータを既存実装から確認し、事実として記述する（〔規約〕）。
-3. 記述者が、既存実装を実行して fixture（入力と期待値）を作る。
-4. 検査者が、2 の記述にコード由来の表現（コード片、識別子、制御の流れの写し）がないことを確認する。
-5. 実装者が、ノートと公開資料と fixture だけを使って実装し、テストを通す。
+1. The spec writer organizes equations and methods from public documents ([Public]).
+2. The spec writer determines conventions and numerical parameters missing from the public
+   documents by examining the reference implementation, and records them as facts ([Convention]).
+3. The spec writer runs the reference implementation to produce fixtures (inputs and expected values).
+4. The reviewer confirms that the [Convention] text contains no code-derived expression
+   (code fragments, identifiers, transcribed control flow).
+5. The implementer implements from the book, public documents and fixtures only, and makes the tests pass.
 
-## 記録
+## Records
 
-- ノートの各版はこのリポジトリの git 履歴で管理します。
-- 検査の記録は pull request のレビューとして残します。
-- 実装側のリポジトリには、どの版のノートに基づいて実装したかを記録します。
+- Each version of the book is tracked in this repository's git history.
+- Reviews are recorded in `reviews/` and in pull-request reviews.
+- Implementation repositories record which version of the book they were built from.
 
-## 注意
+## Notes
 
-- AI を使ったクリーンルーム実装の法的評価は、まだ確立していません。このノートの運用は
-  依拠性を否定するための材料を残すものであり、法的な保証ではありません。
-- OpenMX 本体の著作権者（尾崎泰助氏ほか）とは、方針について事前に相談します。
+- The legal standing of AI-assisted clean-room implementation is not settled. This procedure leaves
+  evidence against dependence on the reference code; it is not a legal guarantee.
+- Language models have been trained on public scientific codes, so a perfect clean room is impossible.
+  The aim is that implementations are designed from the specification and do not copy or adapt
+  the structure of the reference code.
+- Copyright holders of reference codes are consulted on the approach where practical.
+  For OpenMX, see [Licensing](license.md).

@@ -1,45 +1,77 @@
-# はじめに
+# Introduction
 
-このノートは、第一原理計算コード [OpenMX](https://www.openmx-square.org/) の手法を、
-**OpenMX のソースコードを読まずに再実装できる**水準まで記述することを目的とした実装仕様書です。
+This book describes a **common Rust substrate for ab initio electronic-structure methods**
+and the implementation specifications of the methods built on it. It serves two readers at once:
 
-## 目的
+- **People** who want to understand the project, judge whether it is sound, and join it.
+- **Implementers, human or AI agent,** who need specifications precise enough to write
+  and test code without reading the source of existing GPL or proprietary codes.
 
-- OpenMX を、ユニットテストを適用できる部品の集まりとして作り直すための仕様を提供する。
-- 公開されている技術ノート・論文・マニュアルを出発点とし、それらに書かれていない
-  規約・数値パラメータ・境界条件を補う。
-- 各モジュールについて、正しさを判定するテスト（解析解・物理的不変量・参照値との照合）を定義する。
+The Rust code lives in separate repositories. This repository holds only the design,
+the specifications, and the verification plan.
 
-実装言語は問いませんが、念頭にあるのは Rust による再実装です。
+## Why
 
-## 位置づけ
+AI coding agents can now write large amounts of scientific code quickly. What they cannot
+do on their own is guarantee that the code is *correct*. The question this project asks is:
 
-OpenMX 本体は GPL-3.0 で配布されています。このノートは OpenMX のコードの翻訳ではなく、
-公開資料の式と、事実としての規約（単位、並び順、ファイル形式など）を独自の記述で整理したものです。
-実装者がこのノートと公開資料だけを読んで実装することで、OpenMX の GPL コードに依拠しない
-実装（クリーンルーム実装）を可能にすることを狙っています。詳しくは
-[クリーンルーム実装の手順](process/clean-room.md) と [ライセンス](process/license.md) を参照してください。
+> Can a small group, working with AI agents, build and maintain trustworthy
+> first-principles codes, if correctness is pinned down by specifications and tests
+> at the level of individual components?
 
-## 状態
+If the answer is yes, implementing a new method or maintaining an existing one becomes far
+cheaper, and small research groups can own reliable electronic-structure codes. We will publish
+what we learn, including what fails.
 
-| 章 | 状態 |
-|---|---|
-| 運用規則・資料索引・全体設計 | 初版 |
-| 基本モジュールの 10 章（基底、二中心積分、非局所擬ポテンシャル、中性原子、グリッド・Poisson・XC、k 点、一般化固有値、密度行列とミキシング、全エネルギーと力、非共線） | 初版（AI 検査者による検査済み） |
-| 発展的な機能の 6 章（O(N) 法、DFT+U・磁気、ESM・電場・内殻準位、EXX・分散力補正、NEGF、構造最適化・MD） | 初版（AI 検査者による検査済み） |
-| 解析機能の 2 章 | 初版（AI 検査者による検査済み） |
+## What
 
-OpenMX 4.0 の主な機能をひととおり扱っています。検査の記録はリポジトリの `reviews/` にあります。
-各章に残る〔未確定〕の項目は、fixture との照合で詰めていきます（[公開資料の空白](methods/lcao-openmx/sources/gaps.md)）。
-〔規約〕として書いた事実は、dc1394 氏の GPU 版（commit 3871b1f）で確認したもので、本家と異なる場合があります。
+Three method families share one substrate, but each keeps its own internals and interfaces:
 
-各章の式と規約の一部は、`tools/` のスクリプトで数値的に確かめています。
+| Method family | Basis | Role | Status |
+|---|---|---|---|
+| [LCAO (OpenMX-style)](methods/lcao-openmx/README.md) | Numerical pseudo-atomic orbitals, norm-conserving pseudopotentials | H(R)/S(R)-centric electronic structure; data source and downstream solver for ML Hamiltonians; large systems, O(N), NEGF | Specification drafted (18 chapters) |
+| [PAW](methods/paw/README.md) | Plane waves + projector augmentation | High-throughput, accurate total energies and forces (e.g. training data for ML potentials) | Scoping |
+| [FLAPW](methods/flapw/README.md) | Linearized augmented plane waves, all-electron | All-electron reference within the same framework; core-level, hyperfine, magnetism | Scoping |
 
-## 読み方
+The substrate is **a set of libraries, not a framework**: shared leaf components
+(tensor and linear algebra via tenferro-rs, FFT, radial solvers, spherical harmonics, XC,
+symmetry, k-points, mixing) plus shared outer contracts (structure input, physical observables,
+verification harness). Each method owns its SCF loop, basis representation, Hamiltonian
+storage, and forces. See [Substrate overview](substrate/README.md).
 
-各章の記述には出典区分のタグが付きます（[記述の規則](process/writing-rules.md)）。
+## How correctness is established
 
-- **〔公開〕** 公開資料（論文・技術ノート・マニュアル）に基づく記述。
-- **〔規約〕** 公開資料に記載がなく、既存実装の挙動として確認した事実（単位、並び順、閾値など）。レビュー対象。
-- **〔設計〕** このノートで新たに定める設計上の決定。OpenMX の挙動とは独立。
-- **〔未確定〕** 未調査・要確認の項目。
+1. **Component-level specifications.** Each component has a written contract: inputs,
+   outputs, conventions, thresholds, edge cases.
+2. **Four layers of tests** ([Testing strategy](testing/strategy.md)): analytic solutions,
+   physical invariants (Hermiticity, translational and rotational invariance, sum rules,
+   finite-difference forces), comparison with fixtures from reference codes, and SCF regression.
+3. **Cross-method verification.** The three families are compared at the level of physical
+   observables (equations of state, forces, band structures), and against external all-electron
+   references such as the ACWF verification data set (WIEN2k/FLEUR).
+4. **Clean-room discipline** where reference codes are GPL or proprietary
+   ([Clean-room procedure](process/clean-room.md)).
+
+## Licensing
+
+- Text: CC BY 4.0. Code samples, scripts, test data: MIT.
+- Implementations built from these specifications are intended to be MIT/Apache-2.0.
+- See [Licensing](process/license.md) for the status of each reference code and data set,
+  including OpenMX's PAO/VPS databases.
+
+## How to read
+
+Statements in method chapters carry a source-category tag
+([Writing rules](process/writing-rules.md)):
+
+- **[Public]** Based on public documents (papers, technical notes, manuals).
+- **[Convention]** Not in public documents; a fact about the behavior of an existing implementation
+  (units, ordering, thresholds, ...). Subject to clean-room review.
+- **[Design]** A design decision made in this book, independent of any existing implementation.
+- **[Open]** Not yet investigated or confirmed.
+
+## Status and history
+
+The LCAO chapters were first written in Japanese as "OpenMX implementation notes" and reviewed by
+AI reviewers in that form (records in `reviews/`). They were translated into English when the
+repository was reorganized into this substrate (November 2026).

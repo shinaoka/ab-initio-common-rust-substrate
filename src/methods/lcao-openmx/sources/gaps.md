@@ -1,55 +1,55 @@
-# 公開資料の空白
+# Gaps in public documents
 
-公開資料（技術ノート・論文・マニュアル）だけでは再実装に足りない項目の一覧です。
-各項目は、記述者が〔規約〕として補うか、このノートで〔設計〕として決め直します。
+A list of items for which public documents (technical notes, papers, manual) alone are insufficient for reimplementation.
+For each item, the spec writer supplements it as [Convention], or this note redefines it as [Design].
 
-## 全体に関わる規約
+## Conventions affecting the whole
 
-| 項目 | 状況 | 対応 |
+| Item | Status | Resolution |
 |---|---|---|
-| 実球面調和関数の並び順・符号 | マニュアルは「実球面調和関数」とのみ記載 | [PAO 基底](../modules/pao-basis.md) に〔規約〕として記載済み |
-| PAO・VPS ファイルの形式 | マニュアルに概要のみ | [PAO 基底](../modules/pao-basis.md)、[非局所擬ポテンシャル](../modules/nonlocal-pseudopotential.md) に記載済み |
-| 二中心積分の波数格子・積分点数 | 技術ノート 15 に例示のみ | [二中心積分](../modules/two-center-overlap-kinetic.md) に記載済み |
-| 軌道・原子・周期像・スピンの添字規約 | 記載なし | [疎ブロック形式](../design/sparse-block-format.md) で〔設計〕、既存実装の規約も記載 |
-| 実空間グリッドの決め方（カットオフから格子数） | 技術ノート 1 に概要（係数に誤りあり） | [グリッド](../modules/grid-poisson-xc.md) に記載済み |
-| k 点の生成（TRIM 点を含む） | マニュアル 15 節のみ | [k 点と Bloch 和](../modules/kpoints-bloch.md) に記載済み |
+| Ordering and signs of real spherical harmonics | The manual only says "real spherical harmonics" | Documented as [Convention] in [PAO basis](../modules/pao-basis.md) |
+| Format of PAO and VPS files | Only an overview in the manual | Documented in [PAO basis](../modules/pao-basis.md) and [nonlocal pseudopotential](../modules/nonlocal-pseudopotential.md) |
+| Wave-number grid and number of integration points for two-center integrals | Only examples in technical note 15 | Documented in [two-center integrals](../modules/two-center-overlap-kinetic.md) |
+| Index conventions for orbitals, atoms, periodic images, and spins | Not documented | [Design] in [sparse block format](../design/sparse-block-format.md); the conventions of the existing implementation are also documented |
+| How the real-space grid is determined (number of grid points from the cutoff) | Overview in technical note 1 (with an error in a coefficient) | Documented in [grid](../modules/grid-poisson-xc.md) |
+| Generation of k points (including TRIM points) | Only Section 15 of the manual | Documented in [k points and Bloch sums](../modules/kpoints-bloch.md) |
 
-## 数値手法
+## Numerical methods
 
-| 項目 | 状況 |
+| Item | Status |
 |---|---|
-| S の正則化（固有値の置換・次元削減）の閾値と方式 | [一般化固有値](../modules/generalized-eigen.md) に経路ごとの対応表を記載済み |
-| auto-Kerker、SCF の自動調整（マニュアル 16.2、16.3） | [密度行列と電荷ミキシング](../modules/density-mixing.md) に記載済み |
-| 原子密度による XC エネルギーの補正（既定で有効） | 公開資料に記載なし。[グリッド](../modules/grid-poisson-xc.md) に記載済み |
-| 構造最適化の EF・RF・DIIS（マニュアル 18） | [構造最適化・MD](../modules/geometry-md.md) に記載済み（既定値はマニュアルと異なる） |
-| MD の熱浴・圧力浴（NVT_NH、NPT など） | [構造最適化・MD](../modules/geometry-md.md) に記載済み |
-| EXX を SCF にどう組み込むか | 既存実装では到達できない。[EXX・分散力補正](../modules/exx-vdw.md) に記載 |
-| DFT-D2・D3 | [EXX・分散力補正](../modules/exx-vdw.md) に記載済み |
-| O(N) 法の局所問題・化学ポテンシャル | [O(N) 法](../modules/on-methods.md) に記載済み |
+| Thresholds and schemes for regularization of S (eigenvalue replacement, dimension reduction) | A per-path correspondence table is documented in [generalized eigenvalue](../modules/generalized-eigen.md) |
+| auto-Kerker, automatic SCF tuning (manual 16.2, 16.3) | Documented in [density matrix and charge mixing](../modules/density-mixing.md) |
+| Correction of the XC energy by the atomic density (enabled by default) | Not in public documents. Documented in [grid](../modules/grid-poisson-xc.md) |
+| EF, RF, DIIS for geometry optimization (manual 18) | Documented in [geometry optimization and MD](../modules/geometry-md.md) (defaults differ from the manual) |
+| Thermostats and barostats for MD (NVT_NH, NPT, etc.) | Documented in [geometry optimization and MD](../modules/geometry-md.md) |
+| How EXX is incorporated into SCF | Unreachable in the existing implementation. Documented in [EXX and dispersion corrections](../modules/exx-vdw.md) |
+| DFT-D2 and D3 | Documented in [EXX and dispersion corrections](../modules/exx-vdw.md) |
+| Local problems and chemical potential of O(N) methods | Documented in [O(N) methods](../modules/on-methods.md) |
 
-## 物理機能
+## Physical features
 
-| 項目 | 状況 |
+| Item | Status |
 |---|---|
-| 完全相対論・j 依存の擬ポテンシャルの扱い | [非局所擬ポテンシャル](../modules/nonlocal-pseudopotential.md) に記載済み |
-| 非共線・スピン軌道相互作用でのエネルギー・力・応力 | [非共線](../modules/noncollinear-energy-force.md) に記載済み（応力は既存実装でも未対応） |
-| 制約 DFT、MAE、Zeeman 項、軌道磁気モーメント | [DFT+U・磁気](../modules/dftu-magnetism.md) に記載済み |
-| NEGF（非共線を含む） | [NEGF](../modules/negf.md) に記載済み |
-| 電場・電荷ドープ・仮想原子・内殻準位 | [ESM・電場・内殻準位](../modules/esm-field-corehole.md) に記載済み |
-| GPU 版で追加された経路 | 結果を変えないものは対象外（[並列化](../design/parallelization.md)） |
+| Treatment of fully relativistic, j-dependent pseudopotentials | Documented in [nonlocal pseudopotential](../modules/nonlocal-pseudopotential.md) |
+| Energy, forces, and stress with noncollinear spin and spin-orbit coupling | Documented in [noncollinear](../modules/noncollinear-energy-force.md) (stress is unsupported even in the existing implementation) |
+| Constrained DFT, MAE, Zeeman term, orbital magnetic moment | Documented in [DFT+U and magnetism](../modules/dftu-magnetism.md) |
+| NEGF (including noncollinear) | Documented in [NEGF](../modules/negf.md) |
+| Electric field, charge doping, virtual atoms, core levels | Documented in [ESM, electric field, and core levels](../modules/esm-field-corehole.md) |
+| Paths added in the GPU version | Those that do not change results are out of scope ([parallelization](../design/parallelization.md)) |
 
-## 出力・インターフェース
+## Output and interfaces
 
-| 項目 | 状況 |
+| Item | Status |
 |---|---|
-| scfout ファイルの形式（マニュアル 70.1） | [解析機能](../modules/analysis.md) に記載済み |
-| OpenMX API（マニュアル 71） | [解析機能](../modules/analysis.md) に記載済み |
-| Mulliken・Voronoi・ESP 電荷、STM、仕事関数など | [解析機能](../modules/analysis.md) に記載済み |
+| Format of the scfout file (manual 70.1) | Documented in [analysis](../modules/analysis.md) |
+| OpenMX API (manual 71) | Documented in [analysis](../modules/analysis.md) |
+| Mulliken, Voronoi, and ESP charges, STM, work function, etc. | Documented in [analysis](../modules/analysis.md) |
 
-## 未着手
+## Not yet started
 
-| 項目 | 状況 |
+| Item | Status |
 |---|---|
-| BoltzTraP・FermiSurfer との連携、COHP、自動 k 経路 | 未作成 |
-| `Cluster-LNO`、EGAC などの一部の解法 | 一部のみ |
-| 本家 OpenMX と GPU 版の差 | 未確認 |
+| Interfaces to BoltzTraP and FermiSurfer, COHP, automatic k paths | Not yet written |
+| Some solvers such as `Cluster-LNO` and EGAC | Partially only |
+| Differences between upstream OpenMX and the GPU version | Not yet checked |

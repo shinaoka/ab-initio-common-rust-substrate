@@ -1,123 +1,123 @@
-# 並列化
+# Parallelization
 
-> 状態：初版（レビュー待ち）。
+> Status: first version (awaiting review).
 
-## 方針〔設計〕
+## Policy [Design]
 
-- 並列化は計算結果を変えません。したがって〔規約〕の項目にはしません。
-- 新しい実装の並列化は、ゼロから設計します。
-- 既存実装の MPI・GPU の内部構造は、このノートに書きません。
-- 目標は、ランク数・スレッド数を変えても、許容誤差の範囲で同じ結果が得られることです。
-- 並列化の単位は、[疎ブロック形式](sparse-block-format.md) の構造（原子対のリスト）を基準に決めます。
+- Parallelization does not change the computed results. It is therefore not made a [Convention] item.
+- Parallelization of the new implementation is designed from scratch.
+- The internal MPI and GPU structure of the existing implementation is not described in this note.
+- The goal is that changing the number of ranks or threads yields the same results within tolerance.
+- The units of parallelization are determined based on the structure (the list of atom pairs) of the [sparse block format](sparse-block-format.md).
 
-## 公開されている手法〔公開〕
+## Published methods [Public]
 
-ここでは考え方だけを自分の言葉でまとめます。詳細は原論文を参照してください。
+Only the ideas are summarized here in our own words. Refer to the original papers for details.
 
-### 原子の分割と領域分割
+### Atom partitioning and domain decomposition
 
-T. V. T. Duy and T. Ozaki, Comput. Phys. Commun. 185, 777 (2014)（arXiv:1209.4506）の要点です。
+Key points of T. V. T. Duy and T. Ozaki, Comput. Phys. Commun. 185, 777 (2014) (arXiv:1209.4506).
 
-- 原子を主軸方向の位置で並べ、近い原子が同じプロセスに入るように分ける。
-- 実空間格子点の分割を、原子の分割に合わせる。原子に属する格子点が同じプロセスにあれば、通信が減る。
-- 原子ごとの仕事量に偏りがあるため、再帰的に二分しながら負荷を均す。
-- Poisson 方程式の 3 次元 FFT を、通信量の少ない方式で行う。
-- 論文は、京コンピュータ上で 16,384 から 131,072 コアへ増やしたとき、並列効率が約 68% だったと報告している。
+- Atoms are sorted by their position along the principal axis and partitioned so that nearby atoms go to the same process.
+- The partitioning of real-space grid points is matched to the partitioning of atoms. If the grid points belonging to an atom are on the same process, communication is reduced.
+- Because the workload per atom is uneven, the load is balanced by recursive bisection.
+- The 3D FFT of the Poisson equation is performed with a scheme that requires little communication.
+- The paper reports a parallel efficiency of about 68% when going from 16,384 to 131,072 cores on the K computer.
 
-### 多次元 FFT の最小通信分割
+### Minimum-communication decomposition for multidimensional FFT
 
-T. V. T. Duy and T. Ozaki, Comput. Phys. Commun. 185, 153 (2014)（arXiv:1302.6189）の要点です。
+Key points of T. V. T. Duy and T. Ozaki, Comput. Phys. Commun. 185, 153 (2014) (arXiv:1302.6189).
 
-- 多次元データを 1 次元の列として扱い、プロセス間に均等に配る。
-- 分割する次元の数を、プロセス数に応じて変えられる。
-- 転置の順序によって通信量が変わる。通信量が最小になる順序が、3 次元から 5 次元について示されている。
+- Multidimensional data are treated as a 1D sequence and distributed evenly among processes.
+- The number of decomposed dimensions can be changed according to the number of processes.
+- The communication volume depends on the order of transposes. The orders that minimize the communication volume are given for 3 to 5 dimensions.
 
-これらは設計の参考にします。ただし新しい実装は、この方式に縛られません。
+These serve as references for the design. However, the new implementation is not bound to these schemes.
 
-## 新しい実装の並列化設計〔設計〕
+## Parallelization design of the new implementation [Design]
 
-### 並列化の階層
+### Levels of parallelization
 
-| 階層 | 並列化する対象 | 通信の性質 |
+| Level | What is parallelized | Nature of communication |
 |---|---|---|
-| 1 | スピン・k 点 | ほぼ独立。最後に密度行列を総和する |
-| 2 | 原子対（二中心積分、行列要素の組み立て） | 原子位置・基底の情報の共有だけ |
-| 3 | 実空間格子の領域（密度、ポテンシャル、XC） | 境界の格子点の交換 |
-| 4 | FFT（Poisson） | 全対全の転置 |
-| 5 | 固有値問題 | 手法による（下記） |
-| 6 | O(N) 法の局所問題 | 独立。境界の情報だけ交換 |
+| 1 | Spin and k points | Nearly independent. The density matrix is summed at the end |
+| 2 | Atom pairs (two-center integrals, assembly of matrix elements) | Only sharing of atomic positions and basis information |
+| 3 | Domains of the real-space grid (density, potential, XC) | Exchange of boundary grid points |
+| 4 | FFT (Poisson) | All-to-all transposes |
+| 5 | Eigenvalue problem | Depends on the method (below) |
+| 6 | Local problems of O(N) methods | Independent. Only boundary information is exchanged |
 
-階層ごとに通信器（コミュニケータ）を分けます。
-ランク数に応じて、各階層への割り当てを決める規則を持ちます。
+A separate communicator is used for each level.
+A rule determines the assignment to each level according to the number of ranks.
 
-### 固有値問題
+### Eigenvalue problem
 
-- k 点が多いとき：k 点（とスピン）をランクのグループに割り当て、各グループ内で 1 つの固有値問題を解く。グループの大きさ 1 が基本形。
-- k 点が少なく行列が大きいとき：行列を分散し、分散密行列の固有値ソルバーを使う。
-- どちらを使うかは、k 点数、行列の次元、ランク数から決める。選択規則は〔未確定〕。
-- O(N) 法では、原子ごとの局所問題を独立に解く。重なり合う領域のデータだけを近傍ランクから受け取る。
+- With many k points: assign k points (and spins) to groups of ranks, and solve one eigenvalue problem within each group. A group size of 1 is the basic form.
+- With few k points and large matrices: distribute the matrix and use a distributed dense eigensolver.
+- Which to use is decided from the number of k points, the matrix dimension, and the number of ranks. The selection rule is [Open].
+- In O(N) methods, the local problem of each atom is solved independently. Only the data of overlapping regions are received from neighboring ranks.
 
-### 疎ブロック形式の分散
+### Distribution of the sparse block format
 
-- ブロックの単位は原子対 \\( (I, J, \mathbf L) \\) とする。ブロックを割ることはしない。
-- 原子をランクに割り当て（原子分割）、行 \\( I \\) の原子を持つランクが、その行の全ブロックを持つ。
-- Hermite 性により \\( (J, I, -\mathbf L) \\) のブロックは別ランクにあるが、重複して保持する形式なので、通信なしに各自で値を作る。
-- 構造（原子対のリストと配置）は全ランクで同じ規則から決定的に作る。値だけがランクごとに持たれる。
-- 格子上の量は、領域分割で分け、原子分割とできるだけ重なるように選ぶ。原子対の行列要素の積分に必要な格子点が、ローカルになる割合を高める。
-- 負荷は、原子ごとの軌道数と近傍原子対の数から見積もる。再分割は、構造が変わるとき（構造最適化・分子動力学のステップ）にだけ行う。
+- The unit of a block is an atom pair \\( (I, J, \mathbf L) \\). Blocks are not split.
+- Atoms are assigned to ranks (atom partitioning); the rank that owns the atom of row \\( I \\) holds all blocks of that row.
+- By Hermiticity the block \\( (J, I, -\mathbf L) \\) resides on another rank, but since the format stores duplicates, each rank builds its values itself without communication.
+- The structure (list and layout of atom pairs) is built deterministically by all ranks from the same rule. Only the values are held per rank.
+- Grid quantities are split by domain decomposition, chosen to overlap the atom partitioning as much as possible. This raises the fraction of grid points needed for integrating atom-pair matrix elements that are local.
+- The load is estimated from the number of orbitals per atom and the number of neighboring atom pairs. Repartitioning is done only when the structure changes (geometry optimization and molecular dynamics steps).
 
-### ランク内のスレッド
+### Threads within a rank
 
-- ランク内の並列化は、原子対ループや格子点ブロックに対するスレッドで行う。
-- 総和は、スレッドごとの部分和を固定した順序で足す。
-- 小さな密ブロックの積は、スレッドではなく、まとめて（バッチで）処理する余地を残す。
+- Parallelization within a rank uses threads over atom-pair loops or blocks of grid points.
+- Sums are formed by adding per-thread partial sums in a fixed order.
+- Room is left for processing products of small dense blocks together (in batches) rather than with threads.
 
-### GPU へのオフロード境界
+### GPU offload boundary
 
-- 候補は、密行列の固有値問題、原子対ごとの小さな密ブロックの積、格子上の FFT、XC の点ごとの評価。
-- 疎ブロックの値、格子上の密度・ポテンシャルは、SCF の反復中はデバイス上に置いたままにする。
-- ホストとデバイスの間で毎反復コピーするのは、スカラー量とミキシングに必要な最小限のデータだけにする。
-- GPU がなくても、同じ結果が出る CPU 経路を常に持つ。
+- Candidates are the dense eigenvalue problem, products of small dense blocks per atom pair, FFT on the grid, and pointwise evaluation of XC.
+- The values of the sparse blocks and the density and potential on the grid stay on the device during SCF iterations.
+- Only scalar quantities and the minimum data needed for mixing are copied between host and device at every iteration.
+- A CPU path that gives the same results is always kept, even without a GPU.
 
-### 決定性と再現性
+### Determinism and reproducibility
 
-- 同じランク数・スレッド数では、実行ごとに同じ結果（ビット一致）が得られることを目標にする。通信の到着順に依存した総和をしない。
-- ランク数・スレッド数が違えば、総和の順序が変わるので、ビット一致は求めない。許容誤差の範囲で一致すればよい。
-- 総和（リダクション）は、次のいずれかに固定する。
-  - 全体で定めた順序（例：原子番号順）の木構造の総和。
-  - 部分和を固定の順序で足す。
-- 乱数を使う場合は、乱数列をランク数に依存しないように、要素（原子・k 点）ごとのシードから作る。
-- ミキシングの履歴など、全ランクで同じであるべき量は、1 つのランクで計算して配る。各ランクで別々に計算しない。
+- With the same numbers of ranks and threads, the goal is to obtain the same results (bitwise identical) on every run. No sums depend on the arrival order of messages.
+- With different numbers of ranks or threads, the order of summation changes, so bitwise identity is not required. Agreement within tolerance suffices.
+- Sums (reductions) are fixed to one of the following:
+  - A tree-structured sum in a globally defined order (e.g. by atom index).
+  - Adding partial sums in a fixed order.
+- If random numbers are used, the random sequences are generated from per-element (atom, k point) seeds so that they do not depend on the number of ranks.
+- Quantities that must be the same on all ranks, such as the mixing history, are computed on one rank and broadcast. They are not computed separately on each rank.
 
-### MPI と数値ライブラリ
+### MPI and numerical libraries
 
-- 通信は rsmpi 経由の MPI で行う。ランク間の集団通信は、薄い抽象層の背後に置く。
-- 抽象層は、単一ランクの実装（通信なし）を持つ。これにより、並列でないテストが同じコードを通る。
-- 密行列演算は faer と tenferro を使う。分散固有値ソルバーは、外部ライブラリをこの層の背後に置く。
+- Communication uses MPI through rsmpi. Collective communication between ranks is placed behind a thin abstraction layer.
+- The abstraction layer has a single-rank implementation (no communication). This lets non-parallel tests go through the same code.
+- Dense matrix operations use faer and tenferro. For the distributed eigensolver, an external library is placed behind this layer.
 
-## テスト
+## Tests
 
-[テストの階層](../../../testing/strategy.md) の考え方に従います。
+The approach of the [test hierarchy](../../../testing/strategy.md) is followed.
 
-| 検査 | 内容 | 許容誤差 |
+| Check | Content | Tolerance |
 |---|---|---|
-| ランク数独立性 | ランク数 1, 2, 4, 8 で、全エネルギー、力、固有値、密度行列を比較 | 全エネルギー 1e-8 Ha 程度（暫定） |
-| スレッド数独立性 | スレッド数 1, 2, 4 で同様に比較 | 同上 |
-| 再現性 | 同じ条件で 2 回実行し、結果が一致 | ビット一致 |
-| 分割の独立性 | 原子分割・k 点分割の方法を変えて比較 | 同上 |
-| 単一ランク経路 | 通信抽象層の単一ランク実装と、MPI 実装を比較 | 同上 |
-| CPU と GPU | 同じ入力で結果を比較 | 暫定 1e-7 Ha |
-| 負荷の均衡 | ランクごとの原子数・原子対数・格子点数の最大/平均の比 | 暫定 1.2 以下 |
-| 通信量 | 領域分割で交換する格子点数と、原子対の数 | 記録のみ（性能回帰の検出に使う） |
-| スケーリング | ランク数を増やしたときの時間（強スケーリング） | 記録のみ |
+| Independence of rank count | Compare total energy, forces, eigenvalues, and density matrix with 1, 2, 4, 8 ranks | Total energy about 1e-8 Ha (provisional) |
+| Independence of thread count | Compare likewise with 1, 2, 4 threads | Same as above |
+| Reproducibility | Run twice under the same conditions; results agree | Bitwise identical |
+| Independence of partitioning | Compare with different methods of atom partitioning and k-point partitioning | Same as above |
+| Single-rank path | Compare the single-rank implementation of the communication abstraction layer with the MPI implementation | Same as above |
+| CPU vs. GPU | Compare results for the same input | Provisionally 1e-7 Ha |
+| Load balance | Max/mean ratio of the numbers of atoms, atom pairs, and grid points per rank | Provisionally 1.2 or less |
+| Communication volume | Number of grid points exchanged in domain decomposition and number of atom pairs | Recorded only (used to detect performance regressions) |
+| Scaling | Time when increasing the number of ranks (strong scaling) | Recorded only |
 
-小さな系（数原子）を多くのランクで走らせる場合も検査する。ランクに仕事がない状況（空のランク）で止まらないことを確かめる。
+Also check running a small system (a few atoms) on many ranks. Confirm that the program does not hang when a rank has no work (an empty rank).
 
-## 未確定〔未確定〕
+## Open [Open]
 
-- 階層ごとのランク割り当て規則と、固有値問題の手法の選択規則。
-- 分散固有値ソルバーに使う外部ライブラリ。
-- 原子分割の具体的なアルゴリズム（再帰二分法の変形か、空間充填曲線か）。
-- GPU オフロードの対象（先に実装するカーネル）と、使う GPU ライブラリ。
-- 許容誤差の値（上の表は暫定）。
-- 力・応力の計算で、原子分割と格子分割のずれが負荷に与える影響。
+- The rules for rank assignment at each level, and the rule for selecting the eigenvalue method.
+- The external library used for the distributed eigensolver.
+- The concrete atom-partitioning algorithm (a variant of recursive bisection, or a space-filling curve).
+- The targets of GPU offload (which kernels to implement first) and the GPU libraries to use.
+- The tolerance values (the table above is provisional).
+- The effect on load of the mismatch between atom partitioning and grid partitioning in force and stress calculations.

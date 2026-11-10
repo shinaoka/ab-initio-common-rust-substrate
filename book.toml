@@ -1,13 +1,13 @@
 [book]
-title = "OpenMX 実装ノート"
+title = "ab initio common Rust substrate"
 authors = ["Hiroshi Shinaoka and contributors"]
-language = "ja"
+language = "en"
 src = "src"
 
 [output.html]
 mathjax-support = true
-git-repository-url = "https://github.com/shinaoka/openmx-implementation-note"
-edit-url-template = "https://github.com/shinaoka/openmx-implementation-note/edit/main/{path}"
+git-repository-url = "https://github.com/shinaoka/ab-initio-common-rust-substrate"
+edit-url-template = "https://github.com/shinaoka/ab-initio-common-rust-substrate/edit/main/{path}"
 
 [output.html.fold]
 enable = true

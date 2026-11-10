@@ -1,195 +1,195 @@
-# 一般化固有値問題と S の正則化
+# Generalized eigenvalue problem and regularization of S
 
-> 状態：試作（レビュー待ち）。解法の流れと正則化の規則は既存実装の挙動として確認したもの、
-> 数値的な性質は `tools/check_kpoints_eigen.py` で確認しています。
-> 行列の型（実数／複素数、\\( N \\) 次元／\\( 2N \\) 次元）は [k 点と Bloch 和](kpoints-bloch.md) を参照してください。
+> Status: prototype (awaiting review). The solution flow and the regularization rules were verified as behavior of the existing implementation,
+> and the numerical properties were checked with `tools/check_kpoints_eigen.py`.
+> For the matrix types (real/complex, dimension \\( N \\)/\\( 2N \\)), see [k points and Bloch sums](kpoints-bloch.md).
 
-## 問題〔公開〕
+## Problem [Public]
 
-技術ノート 1 の Eq. 27–29 のとおり、各 k 点（Cluster では Γ 点だけ）、各スピンで一般化固有値問題
+As in Eqs. 27–29 of technical note 1, at each k point (only the Γ point for Cluster) and for each spin, the generalized eigenvalue problem
 
 $$
 H(\mathbf k)\\, c\_\mu = \varepsilon\_\mu\\, S(\mathbf k)\\, c\_\mu,\qquad c\_\mu^\dagger S(\mathbf k)\\, c\_\nu = \delta\_{\mu\nu}
 $$
 
-を解きます。\\( H \\) は Hermite（共線の Cluster では実対称）、\\( S \\) は Hermite 正定値です。
-ただし基底関数がほぼ一次従属になると、\\( S \\) の最小固有値は 0 に近づき、丸め誤差で負になることもあります。
-以下、行列の次元を \\( n \\)（共線では \\( N \\)、非共線では \\( 2N \\)）と書きます。
+is solved. \\( H \\) is Hermitian (real symmetric for collinear Cluster), and \\( S \\) is Hermitian positive definite.
+However, when the basis functions become nearly linearly dependent, the smallest eigenvalue of \\( S \\) approaches 0 and may even become negative due to rounding errors.
+Below, the matrix dimension is denoted \\( n \\) (\\( N \\) for collinear, \\( 2N \\) for noncollinear).
 
-## 解法の流れ〔規約〕
+## Solution flow [Convention]
 
-既存実装の主要な経路（Cluster、Band、DC の局所問題）は、Cholesky 分解ではなく \\( S \\) の固有分解で直交化します。
+The main paths of the existing implementation (Cluster, Band, the local problems of DC) orthogonalize using the eigendecomposition of \\( S \\), not the Cholesky decomposition.
 
-1. \\( S \\) を対角化します：\\( S = U\Lambda U^\dagger \\)、\\( \Lambda = \mathrm{diag}(\lambda\_1 \le \dots \le \lambda\_m) \\)。
-2. 正則化の規則（次節）で \\( \Lambda \\) から \\( \tilde\Lambda \\) を作ります。方向を落とす規則では、対応する \\( U \\) の列も除きます。
-3. 変換行列 \\( X = U\tilde\Lambda^{-1/2} \\) を作ります。
-4. \\( H' = X^\dagger H X \\) を作り、標準固有値問題 \\( H' d\_\mu = \varepsilon\_\mu d\_\mu \\) を、小さい方から \\( n\_{\mathrm{ev}} \\) 個だけ解きます。
-5. \\( c\_\mu = X d\_\mu \\) と戻します。
+1. Diagonalize \\( S \\): \\( S = U\Lambda U^\dagger \\), \\( \Lambda = \mathrm{diag}(\lambda\_1 \le \dots \le \lambda\_m) \\).
+2. Build \\( \tilde\Lambda \\) from \\( \Lambda \\) by the regularization rule (next section). For rules that drop directions, the corresponding columns of \\( U \\) are also removed.
+3. Build the transformation matrix \\( X = U\tilde\Lambda^{-1/2} \\).
+4. Build \\( H' = X^\dagger H X \\), and solve the standard eigenvalue problem \\( H' d\_\mu = \varepsilon\_\mu d\_\mu \\) for only the \\( n\_{\mathrm{ev}} \\) lowest eigenpairs.
+5. Transform back as \\( c\_\mu = X d\_\mu \\).
 
-このとき
+Then
 
 $$
 C^\dagger S\_{\mathrm{eff}}\\, C = I,\qquad H C = S\_{\mathrm{eff}}\\, C E,\qquad S\_{\mathrm{eff}} = U\tilde\Lambda U^\dagger
 $$
 
-が成り立ちます（\\( C = (c\_1, \dots, c\_{n\_{\mathrm{ev}}}) \\)、\\( E = \mathrm{diag}(\varepsilon\_\mu) \\)）。
-正則化で固有値が変わらなければ \\( S\_{\mathrm{eff}} = S \\) で、元の問題の解そのものです。
+hold (\\( C = (c\_1, \dots, c\_{n\_{\mathrm{ev}}}) \\), \\( E = \mathrm{diag}(\varepsilon\_\mu) \\)).
+If regularization does not change the eigenvalues, \\( S\_{\mathrm{eff}} = S \\) and the result is exactly the solution of the original problem.
 
-- **共線スピン偏極**：\\( S \\) はスピンに依らないので、\\( X \\) を 1 回作って両スピンに使います。
-- **非共線**：\\( S^{(2)} = I\_2\otimes S \\) なので、\\( N\times N \\) の \\( S \\) だけを対角化し、\\( X^{(2)} = I\_2\otimes X \\) とします。
-  \\( H' \\) は、3 つのスピンブロックをそれぞれ \\( X^\dagger H^{\sigma\sigma'} X \\) と変換してから
-  \\( 2N\times 2N \\) に組み立てたものと同じです（\\( H'^{\downarrow\uparrow} = (H'^{\uparrow\downarrow})^\dagger \\)）。
-  Cluster の非共線計算では \\( S \\) と \\( X \\) は実数で、\\( H' \\) は複素数です。
-- **\\( X \\) の再利用**：\\( X \\) は \\( S \\) だけで決まるので、既存実装は、原子配置が変わらない間の SCF 反復で
-  \\( X \\) を再利用します（Cluster、および Band の一部の並列構成）。
-- 標準固有値問題の解き方（密行列の三重対角化と三重対角固有値問題、分散並列、GPU）は数値的な結果に影響しない実装上の選択です。
-  〔公開〕技術ノート 10 は Hermite 行列を Householder 変換で実対称三重対角行列に変える方法を説明しています。
-  〔規約〕`scf.eigen.lib`（`lapack`、`elpa1`、`elpa2`、`gpusolver`、`gpusolver2` など）でライブラリーを、
-  `scf.lapack.dste`（`dstevx`（既定）、`dstegr`、`dstedc`、`dsteqr`）で三重対角固有値問題の解法を選べます。
-  ただし `scf.eigen.lib` の選択は、次節の正則化の規則を変えることがあります。
+- **Collinear spin-polarized**: \\( S \\) does not depend on spin, so \\( X \\) is built once and used for both spins.
+- **Noncollinear**: since \\( S^{(2)} = I\_2\otimes S \\), only the \\( N\times N \\) \\( S \\) is diagonalized, and \\( X^{(2)} = I\_2\otimes X \\).
+  \\( H' \\) is the same as transforming each of the three spin blocks as \\( X^\dagger H^{\sigma\sigma'} X \\) and then
+  assembling them into a \\( 2N\times 2N \\) matrix (\\( H'^{\downarrow\uparrow} = (H'^{\uparrow\downarrow})^\dagger \\)).
+  In noncollinear Cluster calculations, \\( S \\) and \\( X \\) are real and \\( H' \\) is complex.
+- **Reuse of \\( X \\)**: since \\( X \\) is determined by \\( S \\) alone, the existing implementation reuses \\( X \\) across SCF iterations
+  while the atomic configuration does not change (Cluster, and some parallel configurations of Band).
+- How the standard eigenvalue problem is solved (tridiagonalization of the dense matrix and the tridiagonal eigenvalue problem, distributed parallelism, GPU) is an implementation choice that does not affect the numerical results.
+  [Public] Technical note 10 explains how to transform a Hermitian matrix into a real symmetric tridiagonal matrix by Householder transformations.
+  [Convention] The library can be selected with `scf.eigen.lib` (`lapack`, `elpa1`, `elpa2`, `gpusolver`, `gpusolver2`, etc.),
+  and the tridiagonal eigensolver with `scf.lapack.dste` (`dstevx` (default), `dstegr`, `dstedc`, `dsteqr`).
+  Note, however, that the choice of `scf.eigen.lib` can change the regularization rule of the next section.
 
-### Cholesky 還元との関係〔公開〕（一般的な線形代数）
+### Relation to Cholesky reduction [Public] (general linear algebra)
 
-\\( S = LL^\dagger \\) による還元 \\( H'' = L^{-1}HL^{-\dagger} \\) と比べると、\\( X = L^{-\dagger}Q \\)
-（\\( Q = L^\dagger U\Lambda^{-1/2} \\) はユニタリー）なので \\( H' = Q^\dagger H'' Q \\) です。
-正則化が働かない限り、固有値は同じで、固有ベクトル \\( c \\) は縮退部分空間内のユニタリー変換（と各ベクトルの位相）を除いて同じです。
-正則化が働く場合、Cholesky 還元とは別の問題（\\( S\_{\mathrm{eff}} \\) の問題、または部分空間の問題）を解くことになります。
+Compared with the reduction \\( H'' = L^{-1}HL^{-\dagger} \\) by \\( S = LL^\dagger \\), we have \\( X = L^{-\dagger}Q \\)
+(\\( Q = L^\dagger U\Lambda^{-1/2} \\) is unitary), so \\( H' = Q^\dagger H'' Q \\).
+As long as regularization does not act, the eigenvalues are the same, and the eigenvectors \\( c \\) are the same up to unitary transformations within degenerate subspaces (and the phase of each vector).
+When regularization acts, a problem different from the Cholesky reduction is solved (the problem for \\( S\_{\mathrm{eff}} \\), or a subspace problem).
 
-## 正則化の規則〔規約〕
+## Regularization rules [Convention]
 
-\\( \Lambda \\) から \\( \tilde\Lambda \\) を作る規則は、経路によって次のいずれかです。
+The rule for building \\( \tilde\Lambda \\) from \\( \Lambda \\) is one of the following, depending on the path.
 
-| 規則 | 内容 | 次元 | \\( S\_{\mathrm{eff}} \\) |
+| Rule | Content | Dimension | \\( S\_{\mathrm{eff}} \\) |
 |---|---|---|---|
-| A | \\( \lambda < 0 \\) の固有値だけを \\( 10^{-10} \\) に置き換える | 不変 | \\( \lVert S\_{\mathrm{eff}} - S\rVert \le 10^{-10} + \lvert\lambda\_{\min}\rvert \\) |
-| A′ | \\( \lambda < 0 \\) の固有値だけを \\( 10^{-14} \\) に置き換える | 不変 | 同上（\\( 10^{-14} \\)） |
-| B | \\( \lambda < 10^{-10} \\) の固有値をすべて \\( 10^{-10} \\) に置き換える | 不変 | \\( \lVert S\_{\mathrm{eff}} - S\rVert \le 10^{-10} + \lvert\lambda\_{\min}\rvert \\) |
-| C | \\( \lambda < 10^{-9} \\) の固有値とその固有ベクトルを除く | \\( n \\) から除いた数だけ減る | 部分空間に制限した問題 |
-| D | \\( \tilde\lambda = \lvert\lambda\rvert \\)（閾値なし） | 不変 | \\( U\lvert\Lambda\rvert U^\dagger \\) |
+| A | Replace only eigenvalues with \\( \lambda < 0 \\) by \\( 10^{-10} \\) | Unchanged | \\( \lVert S\_{\mathrm{eff}} - S\rVert \le 10^{-10} + \lvert\lambda\_{\min}\rvert \\) |
+| A′ | Replace only eigenvalues with \\( \lambda < 0 \\) by \\( 10^{-14} \\) | Unchanged | Same as above (\\( 10^{-14} \\)) |
+| B | Replace all eigenvalues with \\( \lambda < 10^{-10} \\) by \\( 10^{-10} \\) | Unchanged | \\( \lVert S\_{\mathrm{eff}} - S\rVert \le 10^{-10} + \lvert\lambda\_{\min}\rvert \\) |
+| C | Remove eigenvalues with \\( \lambda < 10^{-9} \\) and their eigenvectors | Reduced from \\( n \\) by the number removed | Problem restricted to the subspace |
+| D | \\( \tilde\lambda = \lvert\lambda\rvert \\) (no threshold) | Unchanged | \\( U\lvert\Lambda\rvert U^\dagger \\) |
 
-経路との対応は次のとおりです。
+The correspondence with paths is as follows.
 
-| 計算 | 経路 | 規則 |
+| Calculation | Path | Rule |
 |---|---|---|
-| Cluster・共線 | CPU（`scf.eigen.lib` が `lapack`／`elpa1`／`elpa2`）、および複数 GPU の分散ソルバー（`gpusolver2`） | A |
-| Cluster・共線 | GPU 上の密行列ソルバー（`gpusolver` で、行列が GPU 経路の条件を満たす場合） | B |
-| Cluster・非共線 | すべての経路（CPU・GPU） | B |
-| Band・共線 | すべての経路（CPU・GPU） | A |
-| Band・非共線 | すべての経路（CPU・GPU） | B |
-| DC・共線／非共線 | 原子ごとの局所問題 | C |
+| Cluster, collinear | CPU (`scf.eigen.lib` is `lapack`/`elpa1`/`elpa2`), and the multi-GPU distributed solver (`gpusolver2`) | A |
+| Cluster, collinear | Dense solver on GPU (`gpusolver`, when the matrix satisfies the GPU-path conditions) | B |
+| Cluster, noncollinear | All paths (CPU and GPU) | B |
+| Band, collinear | All paths (CPU and GPU) | A |
+| Band, noncollinear | All paths (CPU and GPU) | B |
+| DC, collinear/noncollinear | Local problem per atom | C |
 | Cluster-LNO | — | A |
-| エネルギー範囲を指定した密度行列の書き出し（後処理） | 共線／非共線 | A／B |
-| DC-LNO | 局所問題の一部 | D |
-| 後処理：バンド分散、状態密度 | — | A′（[解析機能](analysis.md)。分子軌道の出力の一部に B） |
-| 後処理：交換結合定数（jx）、Berry 位相による分極（polB） | — | 正則化なし（[解析機能](analysis.md)） |
+| Writing out the density matrix for a specified energy range (post-processing) | Collinear/noncollinear | A/B |
+| DC-LNO | Part of the local problems | D |
+| Post-processing: band dispersion, density of states | — | A′ ([analysis](analysis.md); B for part of the molecular-orbital output) |
+| Post-processing: exchange coupling constants (jx), polarization by Berry phase (polB) | — | No regularization ([analysis](analysis.md)) |
 
-- 閾値 \\( 10^{-10} \\)、\\( 10^{-14} \\)、\\( 10^{-9} \\) はいずれも固定値で、**入力キーワードで変更できません**。
-- 規則 C では固有値を昇順に並べたうえで、閾値未満の固有値をすべて除きます。
-  既存実装は Krylov 法でも、部分空間の重なりの固有値に同じ閾値 \\( 10^{-9} \\) を使って方向を除いています。
-- 「GPU 経路の条件」（行列の次元の下限、メモリーに収まるかなど）を満たさない場合、`gpusolver` を指定しても CPU の経路に移るので、
-  Cluster・共線では同じ入力でも系の大きさによって A と B が入れ替わります。
-- 〔公開〕上の規則の違い（A、B、C）は、GPU 版の公開 issue（dc1394/openmx4.0_gpu #1）でも指摘されています。
+- The thresholds \\( 10^{-10} \\), \\( 10^{-14} \\), and \\( 10^{-9} \\) are all fixed values and **cannot be changed by input keywords**.
+- In rule C, the eigenvalues are sorted in ascending order and all eigenvalues below the threshold are removed.
+  The existing implementation also removes directions in the Krylov method using the same threshold \\( 10^{-9} \\) on the eigenvalues of the subspace overlap.
+- If the "GPU-path conditions" (lower bound on the matrix dimension, whether it fits in memory, etc.) are not satisfied, the CPU path is taken even if `gpusolver` is specified,
+  so for Cluster, collinear, A and B switch depending on the system size even for the same input.
+- [Public] The difference among the above rules (A, B, C) is also pointed out in a public issue of the GPU version (dc1394/openmx4.0_gpu #1).
 
-### 規則の違いが結果に与える影響〔設計〕（検算）
+### Effect of rule differences on results [Design] (checked)
 
-`tools/check_kpoints_eigen.py` の「ほぼ特異な \\( S \\)」の例（\\( n = 8 \\)、基底関数のうち 2 組がほぼ一次従属で、
-\\( \lambda\_1 \approx 3\times 10^{-16} \\)、\\( \lambda\_2 \approx 7\times 10^{-14} \\)、\\( \lambda\_3 \approx 2\times 10^{-2} \\)）から、次のことが分かります。
+The "nearly singular \\( S \\)" example in `tools/check_kpoints_eigen.py` (\\( n = 8 \\), two pairs of basis functions nearly linearly dependent,
+\\( \lambda\_1 \approx 3\times 10^{-16} \\), \\( \lambda\_2 \approx 7\times 10^{-14} \\), \\( \lambda\_3 \approx 2\times 10^{-2} \\)) shows the following.
 
-- **規則 A** は \\( 0 \le \lambda < 10^{-10} \\) の固有値をそのまま残すので、\\( X \\) の成分が \\( \lambda^{-1/2} \sim 10^{8} \\) まで大きくなり、
-  \\( H' \\) の丸め誤差が \\( \epsilon\_{\mathrm{mach}}\lVert H\rVert/\lambda \\) 程度に増幅されます。この例では \\( \kappa(S\_{\mathrm{eff}}) \approx 3\times 10^{15} \\)、
-  \\( \lVert C^\dagger S\_{\mathrm{eff}}C - I\rVert \approx 10^{-2} \\) で、最低固有値が規則 B・C の値から 5% ずれました。
-  正の微小固有値がある場合、規則 A は偽の固有値を生む可能性があります。
-- **規則 B** は \\( \kappa(S\_{\mathrm{eff}}) \le \lambda\_{\max}/10^{-10} \\) に抑えるので、\\( S\_{\mathrm{eff}} \\) に対する残差と直交性は
-  \\( \epsilon\_{\mathrm{mach}}\\,\kappa \\) の程度に収まり、物理的な（低い）固有値は規則 C と \\( 10^{-5} \\) 程度の相対差で一致しました。
-- **規則 C** は部分空間での Rayleigh–Ritz 法なので、残差は \\( X^\dagger(HC - SCE) = 0 \\) の意味で 0、\\( C^\dagger S C = I \\) は丸め誤差で成り立ちます。
-  ただし固有対の数が \\( n \\) より少なくなります。
+- **Rule A** keeps eigenvalues with \\( 0 \le \lambda < 10^{-10} \\) as they are, so the components of \\( X \\) grow up to \\( \lambda^{-1/2} \sim 10^{8} \\),
+  and the rounding errors of \\( H' \\) are amplified to about \\( \epsilon\_{\mathrm{mach}}\lVert H\rVert/\lambda \\). In this example \\( \kappa(S\_{\mathrm{eff}}) \approx 3\times 10^{15} \\),
+  \\( \lVert C^\dagger S\_{\mathrm{eff}}C - I\rVert \approx 10^{-2} \\), and the lowest eigenvalue deviated by 5% from the values of rules B and C.
+  When there are small positive eigenvalues, rule A may produce spurious eigenvalues.
+- **Rule B** bounds \\( \kappa(S\_{\mathrm{eff}}) \le \lambda\_{\max}/10^{-10} \\), so the residual and orthogonality with respect to \\( S\_{\mathrm{eff}} \\) stay
+  of order \\( \epsilon\_{\mathrm{mach}}\\,\kappa \\), and the physical (low) eigenvalues agreed with rule C to a relative difference of about \\( 10^{-5} \\).
+- **Rule C** is the Rayleigh–Ritz method in a subspace, so the residual is 0 in the sense \\( X^\dagger(HC - SCE) = 0 \\), and \\( C^\dagger S C = I \\) holds to rounding error.
+  However, the number of eigenpairs becomes smaller than \\( n \\).
 
-## 求める固有対の数〔規約〕
+## Number of eigenpairs to compute [Convention]
 
-SCF の各反復で求める固有対の数 \\( n\_{\mathrm{ev}} \\) は、価電子数
-\\( N\_{\mathrm{el}} = \sum\_I Z\_I^{\mathrm{val}} - Q \\)（\\( Q \\) は `scf.system.charge`）から次のように決まります。
-\\( \lfloor\cdot\rfloor \\) は切り捨てです。どの場合も \\( n \\) を上限とします。
+The number of eigenpairs \\( n\_{\mathrm{ev}} \\) computed at each SCF iteration is determined from the number of valence electrons
+\\( N\_{\mathrm{el}} = \sum\_I Z\_I^{\mathrm{val}} - Q \\) (\\( Q \\) is `scf.system.charge`) as follows.
+\\( \lfloor\cdot\rfloor \\) denotes the floor. In all cases \\( n \\) is the upper bound.
 
-| 計算 | \\( n\_{\mathrm{ev}} \\) |
+| Calculation | \\( n\_{\mathrm{ev}} \\) |
 |---|---|
-| Cluster・共線 | 最初の SCF 反復は \\( n \\)。以降は \\( \lfloor N\_{\mathrm{el}}/2\rfloor + \max(400, \lfloor 0.1\\,n\rfloor) \\) |
-| Cluster・非共線 | 最初の SCF 反復は \\( n \\)。以降は \\( n\_{\mathrm{HOMO}} + \max(400, \lfloor 0.2\\,n\rfloor) \\)。\\( n\_{\mathrm{HOMO}} \\) は前の反復で占有数が \\( 1/2 \\) を超えた最後の準位の番号 |
-| Band・共線 | \\( \lfloor N\_{\mathrm{el}}/2 + \lfloor x\rfloor\rfloor \\)、\\( x = 0.2\\,N\_{\mathrm{el}} \\)（ただし \\( x < 50 \\) なら \\( x = 100 \\)） |
-| Band・非共線 | \\( \lfloor N\_{\mathrm{el}} + \lfloor x\rfloor\rfloor \\)、\\( x = 0.2\\,N\_{\mathrm{el}} \\)（ただし \\( x < 60 \\) なら \\( x = 200 \\)） |
-| DC の局所問題 | 局所問題の全固有対（規則 C で減った次元） |
+| Cluster, collinear | \\( n \\) at the first SCF iteration. Thereafter \\( \lfloor N\_{\mathrm{el}}/2\rfloor + \max(400, \lfloor 0.1\\,n\rfloor) \\) |
+| Cluster, noncollinear | \\( n \\) at the first SCF iteration. Thereafter \\( n\_{\mathrm{HOMO}} + \max(400, \lfloor 0.2\\,n\rfloor) \\). \\( n\_{\mathrm{HOMO}} \\) is the index of the last level whose occupation exceeded \\( 1/2 \\) in the previous iteration |
+| Band, collinear | \\( \lfloor N\_{\mathrm{el}}/2 + \lfloor x\rfloor\rfloor \\), \\( x = 0.2\\,N\_{\mathrm{el}} \\) (but \\( x = 100 \\) if \\( x < 50 \\)) |
+| Band, noncollinear | \\( \lfloor N\_{\mathrm{el}} + \lfloor x\rfloor\rfloor \\), \\( x = 0.2\\,N\_{\mathrm{el}} \\) (but \\( x = 200 \\) if \\( x < 60 \\)) |
+| Local problems of DC | All eigenpairs of the local problem (dimension reduced by rule C) |
 
-- Cluster で状態密度などを出力するとき（後処理の段階）は、係数 0.1（共線）・0.2（非共線）がそれぞれ 0.2・0.4 になります。
-  `partial.charge` を有効にした場合は \\( n\_{\mathrm{ev}} = n \\) です。
-- \\( n\_{\mathrm{ev}} \\) を直接指定する入力キーワードはありません（`num.HOMOs`、`num.LUMOs` は分子軌道の出力の数で、ここには影響しません）。
-- \\( n\_{\mathrm{ev}} \\) 番目より上の準位は占有数 0 として扱われます。電子温度が高い場合や金属で、この仮定が成り立つかは保証されていません。
+- When Cluster outputs the density of states etc. (at the post-processing stage), the coefficients 0.1 (collinear) and 0.2 (noncollinear) become 0.2 and 0.4, respectively.
+  When `partial.charge` is enabled, \\( n\_{\mathrm{ev}} = n \\).
+- There is no input keyword that directly specifies \\( n\_{\mathrm{ev}} \\) (`num.HOMOs` and `num.LUMOs` are the numbers of molecular orbitals to output and do not affect this).
+- Levels above the \\( n\_{\mathrm{ev}} \\)-th are treated as having occupation 0. Whether this assumption holds is not guaranteed at high electronic temperature or for metals.
 
-〔未確定〕この表は参照した版（GPU 版）の値です。本家の OpenMX 3.9／4.0 で係数や下限が同じかは確認していません。
+[Open] This table gives the values of the version consulted (the GPU version). Whether the coefficients and lower bounds are the same in upstream OpenMX 3.9/4.0 has not been checked.
 
-## 固有値の並び・縮退・返すもの〔規約〕
+## Eigenvalue ordering, degeneracy, and return values [Convention]
 
-- 固有値は昇順で返ります（標準固有値ソルバーの出力順のまま）。明示的な並べ替えはしません。
-- 縮退に対する特別な処理はありません。縮退部分空間内の固有ベクトルはソルバー任せで、
-  占有数は固有値だけで決まる（Fermi 分布）ので、縮退した準位には同じ占有数が付きます。
-  その結果、密度行列は縮退部分空間内のユニタリー変換に対して不変です。
-- 各 k 点・各スピンについて、昇順の固有値 \\( \varepsilon\_1, \dots, \varepsilon\_{n\_{\mathrm{ev}}} \\) と、
-  \\( C^\dagger S\_{\mathrm{eff}} C = I \\) を満たす元の基底での係数 \\( C \\)（\\( n\times n\_{\mathrm{ev}} \\)）を返します。
-  非共線では係数の前半 \\( N \\) 行が上向きスピン、後半 \\( N \\) 行が下向きスピンです。
+- Eigenvalues are returned in ascending order (as output by the standard eigensolver). No explicit sorting is done.
+- There is no special treatment of degeneracy. The eigenvectors within a degenerate subspace are left to the solver;
+  since the occupations are determined by the eigenvalues alone (Fermi distribution), degenerate levels get the same occupation.
+  As a result, the density matrix is invariant under unitary transformations within degenerate subspaces.
+- For each k point and each spin, the ascending eigenvalues \\( \varepsilon\_1, \dots, \varepsilon\_{n\_{\mathrm{ev}}} \\) and
+  the coefficients \\( C \\) (\\( n\times n\_{\mathrm{ev}} \\)) in the original basis satisfying \\( C^\dagger S\_{\mathrm{eff}} C = I \\) are returned.
+  In the noncollinear case, the first \\( N \\) rows of the coefficients are spin up and the last \\( N \\) rows are spin down.
 
-## 実装への要求〔設計〕
+## Requirements for implementations [Design]
 
-- **入力**：Hermite 行列 \\( H \\)、\\( S \\)（実数または複素数、下三角だけ読む）、求める固有対の数 \\( n\_{\mathrm{ev}} \\)（または固有値の上限）、正則化の方式。
-- **正則化の方式** を列挙型で明示します。
-  - `Cholesky`：正則化なし。\\( S \\) が正定値でなければエラーを返します。
-  - `ClampNegative { value }`：規則 A・A′。
-  - `Floor { threshold }`：規則 B。
-  - `Drop { threshold }`：規則 C。
-  - `Abs`：規則 D（既存実装との照合専用）。
-- **既定値** は `Floor { threshold: 1e-10 }` とします。規則 A は正の微小固有値の誤差を増幅しうること（上の検算）、
-  規則 C は固有対の数が変わり利用側の扱いが複雑になることが理由です。
-  既存実装との照合では、対象の経路に合わせて方式を明示的に指定します。
-- **報告**：\\( \lambda\_{\min}(S) \\)、\\( \lambda\_{\max}(S) \\)、置き換えた（または除いた）固有値の数、\\( \lVert S\_{\mathrm{eff}} - S\rVert \\)、
-  得られた次元を返します。置き換えが起きたことを呼び出し側が知れるようにします。
-- **非共線**：\\( S^{(2)} = I\_2\otimes S \\) の構造を使い、\\( N\times N \\) の分解だけで済ませます。
-- **再利用**：\\( S \\) の分解（\\( U \\)、\\( \tilde\Lambda \\)、\\( X \\)）を値として返し、\\( S \\) が変わらない限り次の呼び出しに渡せるようにします。
-- **検査**：結果の固有値・固有ベクトルが有限であること、固有値が昇順であることを確認し、満たさなければエラーにします。
-- **後段への配慮**：\\( n\_{\mathrm{ev}} \\) 番目の準位の占有数が無視できない場合（例：\\( f(\varepsilon\_{n\_{\mathrm{ev}}}) > 10^{-12} \\)）、
-  または \\( n\_{\mathrm{ev}} \\) の境界が縮退した準位の途中にある場合に、警告を出すか \\( n\_{\mathrm{ev}} \\) を増やして解き直せるようにします。
+- **Input**: Hermitian matrices \\( H \\), \\( S \\) (real or complex; only the lower triangle is read), the number of eigenpairs to compute \\( n\_{\mathrm{ev}} \\) (or an upper bound on eigenvalues), and the regularization scheme.
+- The **regularization scheme** is made explicit as an enum.
+  - `Cholesky`: no regularization. Returns an error if \\( S \\) is not positive definite.
+  - `ClampNegative { value }`: rules A and A′.
+  - `Floor { threshold }`: rule B.
+  - `Drop { threshold }`: rule C.
+  - `Abs`: rule D (only for comparison with the existing implementation).
+- The **default** is `Floor { threshold: 1e-10 }`. The reasons are that rule A can amplify errors for small positive eigenvalues (the check above),
+  and that rule C changes the number of eigenpairs, complicating handling on the user side.
+  For comparison with the existing implementation, the scheme is specified explicitly to match the target path.
+- **Reporting**: return \\( \lambda\_{\min}(S) \\), \\( \lambda\_{\max}(S) \\), the number of eigenvalues replaced (or removed), \\( \lVert S\_{\mathrm{eff}} - S\rVert \\),
+  and the resulting dimension. The caller must be able to know that a replacement occurred.
+- **Noncollinear**: exploit the structure \\( S^{(2)} = I\_2\otimes S \\) and use only the \\( N\times N \\) decomposition.
+- **Reuse**: return the decomposition of \\( S \\) (\\( U \\), \\( \tilde\Lambda \\), \\( X \\)) as a value so that it can be passed to the next call as long as \\( S \\) does not change.
+- **Checks**: verify that the resulting eigenvalues and eigenvectors are finite and that the eigenvalues are in ascending order; return an error otherwise.
+- **Consideration for later stages**: when the occupation of the \\( n\_{\mathrm{ev}} \\)-th level is not negligible (e.g. \\( f(\varepsilon\_{n\_{\mathrm{ev}}}) > 10^{-12} \\)),
+  or when the \\( n\_{\mathrm{ev}} \\) boundary falls in the middle of degenerate levels, it must be possible to issue a warning or to increase \\( n\_{\mathrm{ev}} \\) and solve again.
 
-## テスト
+## Tests
 
-残差と直交性は次の量で判定します。
+Residual and orthogonality are judged by the following quantities.
 
 $$
 \eta\_\mu = \frac{\lVert H c\_\mu - \varepsilon\_\mu S c\_\mu\rVert\_2}{\left(\lVert H\rVert\_2 + \lvert\varepsilon\_\mu\rvert\\,\lVert S\rVert\_2\right)\lVert c\_\mu\rVert\_2},\qquad
 \omega = \lVert C^\dagger S C - I\rVert\_{\max}
 $$
 
-正則化が働いた場合は \\( S \\) を \\( S\_{\mathrm{eff}} \\) に置き換えて判定し、\\( \lVert S\_{\mathrm{eff}} - S\rVert \\) を別に記録します。
-規則 C では \\( \eta \\) の代わりに、部分空間に射影した残差 \\( \lVert X^\dagger(HC - SCE)\rVert/\lVert H\rVert \\) を使います。
+When regularization acts, \\( S \\) is replaced by \\( S\_{\mathrm{eff}} \\) in the judgment, and \\( \lVert S\_{\mathrm{eff}} - S\rVert \\) is recorded separately.
+For rule C, instead of \\( \eta \\), the residual projected onto the subspace, \\( \lVert X^\dagger(HC - SCE)\rVert/\lVert H\rVert \\), is used.
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Approximate tolerance |
 |---|---|---|
-| 不変量 | 良条件の \\( S \\)（\\( \kappa(S) \lesssim 10^{4} \\)）で、全方式の \\( \max\_\mu \eta\_\mu \\) | \\( 10^{-13} \\) |
-| 不変量 | 良条件の \\( S \\) で \\( \omega \\) | \\( 10^{-12} \\) |
-| 照合 | 良条件の \\( S \\) で、LAPACK の `dsygvd`（実対称）・`zhegvd`（複素 Hermite）の固有値と比較（全方式） | \\( 10^{-12}\lVert H\rVert \\) |
-| 照合 | 同じく、固有ベクトルを縮退部分空間への射影 \\( C\_{\mathcal D} C\_{\mathcal D}^\dagger S \\) で比較 | \\( 10^{-10} \\) |
-| 不変量 | 非共線：\\( I\_2\otimes X \\) によるブロックごとの変換が、\\( 2N \\) 次元の一般化問題（`zhegvd`）と同じ固有値を与える | \\( 10^{-11} \\) |
-| 不変量 | 非共線でスピン非対角ブロックが 0 のとき、固有値が 2 つの共線問題の固有値の和集合になる | \\( 10^{-12} \\) |
-| 不変量 | 共線スピン偏極で \\( X \\) を両スピンで共有しても、スピンごとに独立に解いた結果と一致 | 丸め誤差 |
-| 不変量 | 固有値が昇順、固有値・固有ベクトルが有限 | 厳密 |
-| 不変量 | \\( n\_{\mathrm{ev}} < n \\) で求めた固有対が、全固有対の先頭 \\( n\_{\mathrm{ev}} \\) 個と一致 | \\( 10^{-12} \\) |
-| ほぼ特異 | 最小固有値が \\( 10^{-16} \\)〜\\( 10^{-11} \\) の \\( S \\)（ほぼ一次従属な基底関数の組を含む）で、規則 B の \\( \eta \\)（\\( S\_{\mathrm{eff}} \\) に対して） | \\( 10^{-12} \\) |
-| ほぼ特異 | 同じく、規則 B の \\( \omega \\)（\\( S\_{\mathrm{eff}} \\) に対して）が \\( 10^{3}\epsilon\_{\mathrm{mach}}\\,\kappa(S\_{\mathrm{eff}}) \\) 以下 | — |
-| ほぼ特異 | 規則 B と規則 C の低い固有値（ほぼ一次従属な方向と無関係な準位）が一致 | \\( 10^{-4} \\)（相対） |
-| ほぼ特異 | 規則 C の次元が \\( \#\\{\lambda \ge 10^{-9}\\} \\) に等しく、\\( C^\dagger S C = I \\) と射影残差 0 | \\( 10^{-12} \\) |
-| ほぼ特異 | 負の固有値（\\( -10^{-12} \\) 程度）を持つ \\( S \\) で、規則 A・B が有限の結果を返し、`Cholesky` がエラーを返す | — |
-| ほぼ特異 | 固有値がちょうど 0 の \\( S \\)：規則 A は \\( \lambda = 0 \\) を置き換えないので発散する。再実装の `ClampNegative` は \\( \lambda \le 0 \\) を置き換えるか、エラーを返すかを決めて試験する | — |
-| 照合 | 既存実装から書き出した \\( H \\)、\\( S \\)（Cluster 共線・非共線、Band 共線・非共線の一般の k 点）で、同じ規則を指定したときの固有値 | \\( 10^{-10} \\) Hartree |
-| 照合 | 同じ入力で、占有準位の部分空間（密度行列 \\( C\_{\mathrm{occ}}C\_{\mathrm{occ}}^\dagger \\)）が一致 | \\( 10^{-8} \\) |
+| Invariant | \\( \max\_\mu \eta\_\mu \\) for all schemes with a well-conditioned \\( S \\) (\\( \kappa(S) \lesssim 10^{4} \\)) | \\( 10^{-13} \\) |
+| Invariant | \\( \omega \\) with a well-conditioned \\( S \\) | \\( 10^{-12} \\) |
+| Comparison | With a well-conditioned \\( S \\), compare eigenvalues with LAPACK `dsygvd` (real symmetric) and `zhegvd` (complex Hermitian) (all schemes) | \\( 10^{-12}\lVert H\rVert \\) |
+| Comparison | Likewise, compare eigenvectors via the projector onto the degenerate subspace \\( C\_{\mathcal D} C\_{\mathcal D}^\dagger S \\) | \\( 10^{-10} \\) |
+| Invariant | Noncollinear: the blockwise transformation by \\( I\_2\otimes X \\) gives the same eigenvalues as the \\( 2N \\)-dimensional generalized problem (`zhegvd`) | \\( 10^{-11} \\) |
+| Invariant | Noncollinear with zero spin-off-diagonal blocks: the eigenvalues are the union of the eigenvalues of the two collinear problems | \\( 10^{-12} \\) |
+| Invariant | Collinear spin-polarized: sharing \\( X \\) between both spins agrees with solving each spin independently | Rounding error |
+| Invariant | Eigenvalues in ascending order; eigenvalues and eigenvectors finite | Exact |
+| Invariant | Eigenpairs computed with \\( n\_{\mathrm{ev}} < n \\) agree with the first \\( n\_{\mathrm{ev}} \\) of all eigenpairs | \\( 10^{-12} \\) |
+| Nearly singular | With \\( S \\) whose smallest eigenvalue is \\( 10^{-16} \\)–\\( 10^{-11} \\) (containing pairs of nearly linearly dependent basis functions), \\( \eta \\) of rule B (with respect to \\( S\_{\mathrm{eff}} \\)) | \\( 10^{-12} \\) |
+| Nearly singular | Likewise, \\( \omega \\) of rule B (with respect to \\( S\_{\mathrm{eff}} \\)) is at most \\( 10^{3}\epsilon\_{\mathrm{mach}}\\,\kappa(S\_{\mathrm{eff}}) \\) | — |
+| Nearly singular | The low eigenvalues (levels unrelated to the nearly linearly dependent directions) of rules B and C agree | \\( 10^{-4} \\) (relative) |
+| Nearly singular | The dimension of rule C equals \\( \#\\{\lambda \ge 10^{-9}\\} \\), with \\( C^\dagger S C = I \\) and zero projected residual | \\( 10^{-12} \\) |
+| Nearly singular | With \\( S \\) having a negative eigenvalue (around \\( -10^{-12} \\)), rules A and B return finite results and `Cholesky` returns an error | — |
+| Nearly singular | \\( S \\) with an eigenvalue exactly 0: rule A does not replace \\( \lambda = 0 \\), so it diverges. Decide whether the reimplementation's `ClampNegative` replaces \\( \lambda \le 0 \\) or returns an error, and test it | — |
+| Comparison | With \\( H \\), \\( S \\) written out from the existing implementation (Cluster collinear and noncollinear, Band collinear and noncollinear at general k points), eigenvalues when the same rule is specified | \\( 10^{-10} \\) Hartree |
+| Comparison | With the same input, the subspace of occupied levels (density matrix \\( C\_{\mathrm{occ}}C\_{\mathrm{occ}}^\dagger \\)) agrees | \\( 10^{-8} \\) |
 
-## 未決事項〔未確定〕
+## Open issues [Open]
 
-- `EGAC`、`Cluster-LNO` の各経路での \\( S \\) の扱いの詳細（上の表は確認できた範囲）。`Krylov`、`Cluster2`（旧 `ON2`）、`DC-LNO` の局所問題は [O(N) 法](on-methods.md)、NEGF の \\( S \\) の扱いは [NEGF による電子輸送](negf.md) を参照してください。
-- 「GPU 経路の条件」の具体的な内容（次元の閾値、メモリーの判定）。照合用の fixture は、規則が一意に決まる経路（Band、非共線）から作るのが安全です。
-- 本家 OpenMX との差：参照したのは GPU 版で、本家の CPU 版で Cluster・共線が規則 A だけか、\\( n\_{\mathrm{ev}} \\) の係数が同じかは未確認です。
-- 規則 A でちょうど \\( \lambda = 0 \\) となる場合の既存実装の挙動（発散する）を、照合の対象にするかどうか。
+- Details of the treatment of \\( S \\) in the `EGAC` and `Cluster-LNO` paths (the table above covers what could be verified). For the local problems of `Krylov`, `Cluster2` (formerly `ON2`), and `DC-LNO`, see [O(N) methods](on-methods.md); for the treatment of \\( S \\) in NEGF, see [electron transport by NEGF](negf.md).
+- The concrete content of the "GPU-path conditions" (dimension threshold, memory check). It is safe to build comparison fixtures from paths whose rule is uniquely determined (Band, noncollinear).
+- Differences from upstream OpenMX: the GPU version was consulted; whether Cluster, collinear in the upstream CPU version uses only rule A, and whether the coefficients of \\( n\_{\mathrm{ev}} \\) are the same, has not been checked.
+- Whether to include in the comparison the behavior of the existing implementation when \\( \lambda = 0 \\) exactly under rule A (it diverges).

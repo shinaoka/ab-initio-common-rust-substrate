@@ -1,23 +1,58 @@
-# ライセンス
+# Licensing
 
-## このノートのライセンス
+## This book
 
-- 文章：[Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)
-- テスト用のスクリプト、コード例、テストデータ：MIT License
+- Text: [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/)
+- Scripts, code samples and test data: MIT License
 
-文章は出典を表示すれば自由に利用・改変できます。コード例とテストデータは、
-どのライセンスの実装にも取り込めるよう MIT としています。
+Code samples and test data are MIT so that they can be incorporated into implementations under any license.
 
-## 第三者の資料
+## Implementations
 
-- OpenMX 本体と、VPS・PAO のデータベースは GPL で配布されています。
-  このリポジトリには、それらのコード・データを含めません。
-- OpenMX の技術ノート・論文・マニュアルには、それぞれの著作権があります。
-  このノートは、それらの文章・図・表を転記せず、式と事実を独自の記述で整理し、出典を示します。
+Implementations built from this book are intended to be released under MIT/Apache-2.0
+(dual license, the Rust convention). This is possible only for implementations that do not copy or
+adapt code from GPL or proprietary reference codes; see [Clean-room procedure](clean-room.md).
 
-## fixture の扱い
+## Reference codes and data
 
-既存実装の実行結果（行列要素、エネルギーなど）は、プログラムの出力としての数値です。
-ただし、入力に GPL のデータベース（PAO・VPS ファイル）を使った fixture は、
-データベースそのものを含まない形（行列要素や固有値などの計算結果のみ）で保存します。
-fixture の再生成に必要な入力データは、利用者が OpenMX の配布物から別途取得します。
+| Reference | License | How we use it | Notes |
+|---|---|---|---|
+| OpenMX (code) | GPL-3.0 | Clean-room reference for the LCAO family; fixtures | See "OpenMX" below |
+| OpenMX PAO/VPS databases | GPL (distributed with OpenMX) | Basis sets and pseudopotentials for the LCAO family | May be incorporated with a statement of origin; see below |
+| OpenMX GPU version (H. Kawai) | GPL-3.0 | Reference for [Convention] facts and fixtures | Conventions checked against commit 3871b1f |
+| Quantum ESPRESSO, ABINIT, GPAW, Elk, exciting | GPL | Clean-room references; fixture generation | Code must not be copied; libPAW (in ABINIT) is treated as GPL |
+| WIEN2k, VASP | Proprietary | Published results only | — |
+| SIRIUS | BSD-3-Clause | Algorithm reference for PAW and FP-LAPW; possible verification oracle | Permissive; keep notices if code is reused |
+| FLEUR | MIT | Algorithm reference and oracle for FLAPW | Permissive |
+| dftatom | MIT | Radial Schrödinger/Dirac solvers | Permissive |
+| ACWF verification data | CC BY 4.0 | All-electron equation-of-state references | Cite the data set |
+| PseudoDojo / JTH PAW data | No license file found | — | Redistribution status unknown; do not bundle until clarified |
+
+A fuller survey of permissive codes, libraries and data is in [Prior art](../substrate/prior-art.md).
+
+## OpenMX
+
+The approach was discussed with the principal author of OpenMX (T. Ozaki) in November 2026.
+The points confirmed were:
+
+- Building new software from the GPL-licensed OpenMX is not a problem.
+- An **independent implementation that does not copy or adapt the existing OpenMX code** may be
+  released under MIT/Apache-2.0.
+- The **PAO and VPS databases** may be incorporated (they are already reused by several codes,
+  including commercial ones). Their origin must be stated when they are distributed.
+- To avoid confusion, implementations should use a name different from "OpenMX".
+- When results are published, the related OpenMX papers should be cited:
+  <https://www.openmx-square.org/openmx_man4.0jp/s3_related-papers.html>.
+
+## Third-party documents
+
+Technical notes, papers and manuals of reference codes have their own copyrights. This book does not
+transcribe their text, figures or tables; it restates equations and facts in its own words and cites sources.
+
+## Fixtures
+
+Outputs of existing implementations (matrix elements, energies, ...) are numerical program outputs.
+Each fixture records the program and version, the input file, and the names of the basis sets and
+pseudopotentials used. Fixtures that use the OpenMX PAO/VPS databases may include those files,
+together with a statement of their origin. Data whose redistribution status is unknown
+(see the table above) is not stored; fixtures record how to obtain it instead.

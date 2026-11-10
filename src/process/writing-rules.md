@@ -1,48 +1,60 @@
-# 記述の規則と出典区分
+# Writing rules and source categories
 
-## 書いてよいこと
+## What may be written
 
-- 物理量の定義、式、その導出（自分の記法で書き直したもの）。
-- アルゴリズムの考え方（何を、どの順で計算すると何が得られるか）。
-- 事実としての規約：単位、符号、位相、添字や軌道の並び順、ファイル形式のキーワードと列の意味。
-- 数値パラメータ：閾値、格子点数、カットオフなどの値と、その意味。
-- テストの入力・期待値・許容誤差。
+- Definitions of physical quantities, equations, and their derivations (rewritten in our own notation).
+- The idea of an algorithm (what is computed, in what order, and what it yields).
+- Conventions as facts: units, signs, phases, ordering of indices and orbitals,
+  file-format keywords and the meaning of columns.
+- Numerical parameters: thresholds, grid sizes, cutoffs, with their values and meaning.
+- Test inputs, expected values and tolerances.
 
-## 書いてはいけないこと
+## What must not be written (for GPL or proprietary reference codes)
 
-- OpenMX のソースコードの断片、またはそれを言い換えた疑似コード。
-- 関数名・変数名・ファイル名などの識別子（ファイル形式のキーワードは除く）。
-- 関数の分割、ループの構造、分岐の並びなど、実装の組み立て方の写し。
-- コメントや文書の転記。
-- 技術ノート・論文・マニュアルの文章、図、表の転記。
+- Fragments of the reference source code, or pseudocode paraphrasing it.
+- Identifiers such as function, variable, or source-file names (file-format keywords are allowed).
+- The way the implementation is assembled: function decomposition, loop structure, order of branches.
+- Transcriptions of comments or documentation.
+- Transcriptions of text, figures or tables from technical notes, papers or manuals.
 
-## 公開資料の扱い
+## Public documents
 
-- 式・定義・数値は、自分の記法で書き直し、出典（資料名と式番号）を明記します。
-- 原文が必要な場合のみ、短い引用を出典付きで行います。
-- 公開資料の誤植や不整合を見つけた場合は、検証した結果を〔公開〕節の注記として残します。
+- Rewrite equations, definitions and numbers in our own notation and cite the source
+  (document and equation number).
+- Quote the original only when necessary, briefly and with attribution.
+- When a typo or inconsistency in a public document is found, record the verified result as a note
+  in the [Public] section.
 
-## 出典区分のタグ
+## Source-category tags
 
-各節の見出しまたは段落の先頭に次のタグを付けます。
+Each heading or paragraph carries one of the following tags.
 
-| タグ | 意味 | 検査 |
+| Tag | Meaning | Review |
 |---|---|---|
-| 〔公開〕 | 公開資料に基づく | 出典の明記を確認 |
-| 〔規約〕 | 公開資料に記載がなく、既存実装の挙動として確認した事実 | コード由来の表現がないことを検査者が確認 |
-| 〔設計〕 | このノートで新たに定める設計 | 不要 |
-| 〔未確定〕 | 未調査・要確認 | 解消まで実装の前提にしない |
+| [Public] | Based on public documents | Check that sources are cited |
+| [Convention] | Not in public documents; a fact about the behavior of an existing implementation | Reviewer confirms there is no code-derived expression |
+| [Design] | A design decision made in this book | Not required |
+| [Open] | Not yet investigated or confirmed | Not used as an implementation premise until resolved |
 
-## ビット一致を求めない
+Qualifiers such as "(derived)" (a derivation by the spec writer) and "(checked)"
+(numerically checked by a script in `tools/`) may follow a tag.
 
-再実装の目標は、既存実装とのビット単位の一致ではなく、テストで定めた許容誤差の範囲での一致です。
-補間の端点処理のように、数値結果をわずかに変えるだけの実装上の細部は、原則として〔規約〕に書きません。
-物理量や収束に影響するもの（閾値、カットオフ、正則化の方法など）だけを書きます。
+## No bitwise agreement
 
-## 数式の書き方
+The goal of a reimplementation is agreement with the reference within the tolerances defined by the
+tests, not bitwise agreement. Implementation details that only perturb numerical results slightly,
+such as endpoint handling in interpolation, are in principle not written as [Convention].
+Only what affects physical quantities or convergence (thresholds, cutoffs, regularization methods, ...)
+is written.
 
-- インライン数式は `\\( ... \\)`、別行立ての数式は `$$` だけの行で挟みます。
-- mdBook は Markdown を解釈してから MathJax に渡すため、数式中の `_`、`*`、`\,` などはエスケープが必要です。
-  手で書く必要はなく、`python3 tools/math_escape.py --fix src` で自動変換できます。
-  CI は `--check` で未変換の箇所を検出します。
-- 表の中の数式では `|` を使わず、`\lvert`・`\rvert`・`\lVert`・`\rVert` を使います。
+## Writing math
+
+- Inline math is written as `\\( ... \\)`; display math is enclosed by lines containing only `$$`.
+- mdBook parses Markdown before passing it to MathJax, so `_`, `*`, `\,` etc. inside math need escaping.
+  There is no need to do this by hand: `python3 tools/math_escape.py --fix src` converts automatically,
+  and CI detects unconverted places with `--check`.
+- Inside tables, do not use `|` in math; use `\lvert`, `\rvert`, `\lVert`, `\rVert`.
+
+## Language
+
+The book is written in English. Use straight ASCII punctuation in prose.

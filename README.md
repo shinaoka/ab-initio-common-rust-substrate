@@ -1,28 +1,32 @@
-# OpenMX 実装ノート
+# ab-initio-common-rust-substrate
 
-[OpenMX](https://www.openmx-square.org/) の手法を、OpenMX のソースコードを読まずに再実装できる水準まで記述する実装仕様書です。
-[mdBook](https://rust-lang.github.io/mdBook/) で HTML にレンダリングできます。
+Design and clean-room specifications for a common Rust substrate for ab initio electronic-structure methods:
+an LCAO family in the style of [OpenMX](https://www.openmx-square.org/), plane-wave PAW, and FLAPW.
+The book is written with [mdBook](https://rust-lang.github.io/mdBook/). Rust code lives in separate repositories.
 
-## ビルド
+## Build
 
 ```sh
-cargo install mdbook   # 未導入の場合
+cargo install mdbook   # if not installed
 mdbook serve --open
 ```
 
-## 構成
+## Layout
 
-- `src/process/` 運用規則（クリーンルームの手順、記述の規則、ライセンス）
-- `src/sources/` 公開資料の索引と、公開資料の空白
-- `src/design/` 記法と全体設計
-- `src/modules/` モジュールごとの仕様
-- `src/testing/` テストの方針
-- `tools/` 式の検算用スクリプト
+- `src/README.md` vision: why, what, and how correctness is established
+- `src/process/` clean-room procedure, writing rules, licensing
+- `src/conventions/` notation and units shared by all methods
+- `src/testing/` test layers, fixtures, cross-method verification
+- `src/substrate/` shared leaf libraries and outer contracts; prior art
+- `src/methods/lcao-openmx/` LCAO (OpenMX-style) specifications: design, public documents, modules
+- `src/methods/paw/`, `src/methods/flapw/` scoping notes
+- `tools/` scripts that check equations and conventions numerically
+- `reviews/` clean-room review records
 
-## ライセンス
+## License
 
-- 文章：[CC BY 4.0](LICENSE-CC-BY-4.0.txt)
-- コード例・スクリプト・テストデータ：[MIT](LICENSE-MIT)
+- Text: [CC BY 4.0](LICENSE-CC-BY-4.0.txt)
+- Code samples, scripts and test data: [MIT](LICENSE-MIT)
 
-OpenMX 本体と VPS・PAO データベース（GPL）のコード・データは含みません。
-詳しくは `src/process/license.md` を参照してください。
+This repository contains no code from OpenMX or other GPL/proprietary codes.
+See `src/process/license.md` for the status of reference codes and data, including the OpenMX PAO/VPS databases.

@@ -1,40 +1,40 @@
-# モジュール構成とデータの流れ〔設計〕
+# Module structure and data flow [Design]
 
-## 方針
+## Policy
 
-- 各モジュールはグローバル状態を持たず、入力と出力を型で明示します。
-- モジュール間の受け渡しの中心は、[H(R)・S(R) 疎ブロック形式](sparse-block-format.md) です。
-- 各モジュールは単独でテストできるようにします（[テストの階層](../../../testing/strategy.md)）。
+- No module holds global state; inputs and outputs are made explicit through types.
+- The central object passed between modules is the [H(R)/S(R) sparse block format](sparse-block-format.md).
+- Each module is made testable in isolation ([test hierarchy](../../../testing/strategy.md)).
 
-## データの流れ
+## Data flow
 
 ```text
-入力（構造・基底指定・計算条件）
+Input (structure, basis specification, calculation conditions)
   │
-  ├─► 基底：PAO・VPS の読み込み、動径関数の球 Bessel 変換
+  ├─► Basis: reading PAO and VPS, spherical Bessel transform of radial functions
   │
-  ├─► 二中心積分：S(R)、T(R)、非局所項、中性原子項
+  ├─► Two-center integrals: S(R), T(R), nonlocal term, neutral-atom term
   │        │
   │        ▼
-  │   疎ブロック形式 H₀(R)・S(R)（構造と基底だけで決まる部分）
+  │   Sparse block format H₀(R), S(R) (the part determined by structure and basis only)
   │
-  └─► SCF ループ
-         ρ(r) ──► グリッド上の処理（Poisson、XC、行列要素）──► H[ρ](R)
+  └─► SCF loop
+         ρ(r) ──► Grid processing (Poisson, XC, matrix elements) ──► H[ρ](R)
                                                               │
          ┌────────────────────────────────────────────────────┘
          ▼
-      k 点ごとの H(k)、S(k) ──► 一般化固有値 ──► 密度行列 ρ(R) ──► ρ(r)
+      H(k), S(k) per k point ──► generalized eigenvalue ──► density matrix ρ(R) ──► ρ(r)
          │                                                        │
-         └──────────────── 電荷ミキシング ◄───────────────────────┘
+         └──────────────── charge mixing ◄────────────────────────┘
   │
-  └─► 全エネルギー・力・応力、解析（H(R)・S(R) を入力とする後処理）
+  └─► Total energy, forces, stress, analysis (post-processing taking H(R), S(R) as input)
 ```
 
-## 部品としての再利用
+## Reuse as components
 
-| 部品 | 入力 | 出力 | 想定される外部利用 |
+| Component | Input | Output | Anticipated external use |
 |---|---|---|---|
-| 基底・二中心積分 | 構造、基底指定 | S(R)、T(R)、非局所項 | 機械学習による Hamiltonian 学習、強束縛模型 |
-| H[ρ] の評価 | ρ、構造 | H(R) | 自動微分、機械学習との連携 |
-| 一般化固有値・O(N) 法 | H(k)、S(k) または H(R)、S(R) | 固有値・固有ベクトル、密度行列 | 他の局在基底コード |
-| 後処理 | H(R)、S(R) | バンド、交換相互作用、伝導など | 他の局在基底コード |
+| Basis and two-center integrals | Structure, basis specification | S(R), T(R), nonlocal term | Machine-learning of Hamiltonians, tight-binding models |
+| Evaluation of H[ρ] | ρ, structure | H(R) | Automatic differentiation, coupling with machine learning |
+| Generalized eigenvalue and O(N) methods | H(k), S(k) or H(R), S(R) | Eigenvalues and eigenvectors, density matrix | Other localized-basis codes |
+| Post-processing | H(R), S(R) | Bands, exchange interactions, transport, etc. | Other localized-basis codes |

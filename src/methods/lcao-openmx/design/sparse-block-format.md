@@ -1,57 +1,57 @@
-# H(R)・S(R) 疎ブロック形式〔設計〕
+# H(R)/S(R) sparse block format [Design]
 
-> この章は設計の叩き台です。OpenMX 内部のデータ配置を写すものではなく、
-> 新しい実装のインターフェースとして定めます。
+> This chapter is a design draft. It does not mirror the internal data layout of OpenMX;
+> it defines an interface for the new implementation.
 
-## 対象
+## Target
 
-局在基底の実空間行列
+Real-space matrices in a localized basis,
 
 $$
 O\_{I\alpha, J\beta}(\mathbf L) = \langle \phi\_{I\alpha}(\mathbf r - \mathbf R\_I) | \hat O | \phi\_{J\beta}(\mathbf r - \mathbf R\_J - \mathbf L) \rangle
 $$
 
-を、原子対と格子ベクトルごとの密ブロックとして保持します。\\( \hat O \\) は重なり（恒等演算子）、
-運動エネルギー、Hamiltonian などです。
+are stored as dense blocks per atom pair and lattice vector. \\( \hat O \\) is the overlap (identity operator),
+the kinetic energy, the Hamiltonian, etc.
 
-## 構造と値の分離
+## Separation of structure and values
 
-- **構造**：原子対 \\( (I, J, \mathbf L) \\) のリスト、各原子の軌道数、ブロックの形状、値の配列内の位置。
-  原子配置・基底・カットオフが変わらない限り不変です。
-- **値**：ブロックの数値。SCF の反復ごとに更新されます。
+- **Structure**: the list of atom pairs \\( (I, J, \mathbf L) \\), the number of orbitals of each atom, the block shapes, and the positions in the value array.
+  It is invariant as long as the atomic configuration, basis, and cutoffs do not change.
+- **Values**: the numerical values of the blocks. They are updated at every SCF iteration.
 
-構造を一度作り、値だけを差し替えられるようにします。
+The structure is built once, and only the values can be replaced.
 
-## 決めるべき規約
+## Conventions to be decided
 
-| 項目 | 叩き台 |
+| Item | Draft |
 |---|---|
-| 原子対の範囲 | \\( \lVert \mathbf R\_J + \mathbf L - \mathbf R\_I \rVert \le r\_{c,I} + r\_{c,J} \\) を満たすすべての組（自分自身を含む。既存実装と同じく境界を含む。境界上の対の値は 0） |
-| 対の重複 | \\( (J, I, -\mathbf L) \\) も保持する（Hermite 性で復元できるが、利用側の簡単さを優先）。ただし O(N) 解法（`DC`、`Krylov`、`DC-LNO`）の密度行列は上の意味で Hermite でなく \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\) なので、復元はできず**両方の向きを必ず保持する**（[O(N) 法](../modules/on-methods.md)） |
-| 格子ベクトルの表現 | 整数の 3 つ組 \\( (n\_1, n\_2, n\_3) \\) |
-| ブロック内の並び | 行は \\( I \\) の軌道、列は \\( J \\) の軌道。軌道の並びは [PAO 基底](../modules/pao-basis.md) の規約 |
-| メモリー配置 | 未定（列優先を第一候補。faer・tenferro との受け渡しを考慮） |
-| スピン | 共線：スピンごとに別の行列。非共線：2×2 のスピンブロックを持つ複素行列 |
-| Bloch 和 | \\( O(\mathbf k) = \sum\_{\mathbf L} e^{+i\mathbf k\cdot\mathbf L} O(\mathbf L) \\)。位相は格子ベクトルだけに付け、原子位置は含めない（既存実装と同じ。下の〔規約〕） |
-| k 点の表現 | 逆格子ベクトルに対する分数座標 \\( \mathbf q \\)。\\( \mathbf k\cdot\mathbf L = 2\pi\\,\mathbf q\cdot\mathbf n \\) |
-| 非共線の k 空間行列 | \\( 2N\times 2N \\)、スピンが外側・軌道が内側（\\( p = \sigma N + a \\)）。重なりは \\( I\_2\otimes S(\mathbf k) \\) |
+| Range of atom pairs | All pairs satisfying \\( \lVert \mathbf R\_J + \mathbf L - \mathbf R\_I \rVert \le r\_{c,I} + r\_{c,J} \\) (including the atom itself; the boundary is included, as in the existing implementation; the values of pairs on the boundary are 0) |
+| Duplicate pairs | \\( (J, I, -\mathbf L) \\) is also stored (it can be recovered by Hermiticity, but simplicity on the user side is prioritized). However, the density matrix of the O(N) solvers (`DC`, `Krylov`, `DC-LNO`) is not Hermitian in the above sense, \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\), so it cannot be recovered and **both directions must be stored** ([O(N) methods](../modules/on-methods.md)) |
+| Representation of lattice vectors | Integer triple \\( (n\_1, n\_2, n\_3) \\) |
+| Ordering within a block | Rows are orbitals of \\( I \\), columns are orbitals of \\( J \\). The orbital ordering follows the convention of the [PAO basis](../modules/pao-basis.md) |
+| Memory layout | Undecided (column-major is the first candidate, considering exchange with faer and tenferro) |
+| Spin | Collinear: a separate matrix per spin. Noncollinear: a complex matrix with 2×2 spin blocks |
+| Bloch sum | \\( O(\mathbf k) = \sum\_{\mathbf L} e^{+i\mathbf k\cdot\mathbf L} O(\mathbf L) \\). The phase is attached to the lattice vector only and does not include atomic positions (same as the existing implementation; see [Convention] below) |
+| Representation of k points | Fractional coordinates \\( \mathbf q \\) with respect to the reciprocal lattice vectors. \\( \mathbf k\cdot\mathbf L = 2\pi\\,\mathbf q\cdot\mathbf n \\) |
+| Noncollinear k-space matrix | \\( 2N\times 2N \\), spin outer and orbital inner (\\( p = \sigma N + a \\)). The overlap is \\( I\_2\otimes S(\mathbf k) \\) |
 
-## 既存実装の k 空間の規約〔規約〕
+## k-space conventions of the existing implementation [Convention]
 
-設計の選択を既存実装と揃えるため、確認した事実を記録します（詳細は [k 点と Bloch 和](../modules/kpoints-bloch.md)）。
+To align design choices with the existing implementation, the verified facts are recorded here (details in [k points and Bloch sums](../modules/kpoints-bloch.md)).
 
-- 位相は \\( e^{+2\pi i\\,\mathbf q\cdot\mathbf n} \\) で、\\( \mathbf n \\) は列側（ket 側）の原子 \\( J \\) の周期像を指す格子ベクトルの整数座標です。
-  原子位置は位相に入りません（技術ノート 1 の Eq. 1、28–29 とも一致）。同じ \\( (I, J) \\) の複数の周期像は加算されます。
-- Cluster（Γ 点）では \\( \sum\_{\mathbf L} O(\mathbf L) \\) を実数の行列として作ります。
-- 非共線では \\( \uparrow\uparrow \\)、\\( \downarrow\downarrow \\)、\\( \uparrow\downarrow \\) の 3 ブロックを Bloch 和で作り、
-  \\( \downarrow\uparrow \\) ブロックは \\( \uparrow\downarrow \\) ブロックの Hermite 共役で埋めます。
-  実空間では、各スピンブロックの実部と、スピン軌道相互作用などによる虚部を別々に保持しています。
-- 実空間の密度行列は \\( \rho(\mathbf L) = \sum\_{\mathbf k} w\_{\mathbf k}\sum\_\mu f\_{\mu\mathbf k}\\, e^{+i\mathbf k\cdot\mathbf L}\\, \overline{c\_{I\alpha,\mu}}\\, c\_{J\beta,\mu} \\)
-  （共線では実部）で、\\( H(\mathbf L) \\) と同じ位相の向きです。
+- The phase is \\( e^{+2\pi i\\,\mathbf q\cdot\mathbf n} \\), where \\( \mathbf n \\) is the integer coordinate of the lattice vector pointing to the periodic image of the column-side (ket-side) atom \\( J \\).
+  Atomic positions do not enter the phase (consistent with Eqs. 1 and 28–29 of technical note 1). Multiple periodic images of the same \\( (I, J) \\) are summed.
+- For Cluster (Γ point), \\( \sum\_{\mathbf L} O(\mathbf L) \\) is built as a real matrix.
+- In the noncollinear case, the three blocks \\( \uparrow\uparrow \\), \\( \downarrow\downarrow \\), \\( \uparrow\downarrow \\) are built by Bloch sums,
+  and the \\( \downarrow\uparrow \\) block is filled with the Hermitian conjugate of the \\( \uparrow\downarrow \\) block.
+  In real space, the real part of each spin block and the imaginary part due to spin-orbit coupling etc. are stored separately.
+- The real-space density matrix is \\( \rho(\mathbf L) = \sum\_{\mathbf k} w\_{\mathbf k}\sum\_\mu f\_{\mu\mathbf k}\\, e^{+i\mathbf k\cdot\mathbf L}\\, \overline{c\_{I\alpha,\mu}}\\, c\_{J\beta,\mu} \\)
+  (the real part in the collinear case), with the same phase direction as \\( H(\mathbf L) \\).
 
-## 未決事項〔未確定〕
+## Open issues [Open]
 
-- 非共線の場合の実部・虚部、スピン成分の保持方法（既存実装は実部と虚部を別の配列に分けて持つが、新しい形式では複素数のブロックにするか）。
-- 共線計算で、時間反転による k 点の削減を利用側（密度行列の組み立て）に任せるか、形式の側で \\( \mathrm{Re} \\) をとる関数を提供するか。
-- 原子位置を含む位相の規約（後処理で必要になる場合）を、変換関数として提供するかどうか。
-- MPI 分散時に、どの原子対をどのランクが持つか。
+- How to store the real and imaginary parts and the spin components in the noncollinear case (the existing implementation keeps the real and imaginary parts in separate arrays; whether the new format should use complex blocks).
+- In collinear calculations, whether to leave the k-point reduction by time reversal to the user side (density-matrix assembly), or to provide a function on the format side that takes \\( \mathrm{Re} \\).
+- Whether to provide, as a conversion function, a phase convention that includes atomic positions (in case post-processing needs it).
+- Under MPI distribution, which rank holds which atom pairs.

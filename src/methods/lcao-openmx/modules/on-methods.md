@@ -1,558 +1,558 @@
-# O(N) 法：分割統治法・DC-LNO・Krylov 部分空間法
+# O(N) methods: divide-and-conquer, DC-LNO, and the Krylov subspace method
 
-> 状態：初版（レビュー待ち）。考え方と式は技術ノート 3（Ver. 1.1、Krylov 部分空間法、以下 TN3）、
-> 技術ノート 26（DC-LNO、以下 TN26）、技術ノート 16（低次スケーリング法、以下 TN16）、マニュアル 27 章・48 章を
-> このノートの記法で書き直したものです。規約は既存実装（GPU 版 OpenMX 4.0）の挙動として確認しました。
-> 数値的な性質は `tools/check_on_methods.py` で確認しています。
+> Status: first draft (awaiting review). The ideas and equations rewrite technical note 3 (Ver. 1.1, Krylov subspace method; hereafter TN3),
+> technical note 26 (DC-LNO; hereafter TN26), technical note 16 (low-order scaling method; hereafter TN16), and manual Chapters 27 and 48
+> in the notation of this note. Conventions were confirmed as the behavior of the existing implementation (the GPU version of OpenMX 4.0).
+> Numerical properties are checked with `tools/check_on_methods.py`.
 
-## 目的と範囲
+## Purpose and scope
 
-全系の一般化固有値問題（[一般化固有値問題](generalized-eigen.md)）を解く代わりに、
-原子ごとに小さな「切断クラスター」の問題を解いて、その原子が関わる密度行列の行だけを作る解法をまとめます。
-`scf.EigenvalueSolver` で選ぶ次の解法が対象です。
+Instead of solving the generalized eigenvalue problem of the whole system ([Generalized eigenvalue problem](generalized-eigen.md)),
+these solvers solve a small "truncated cluster" problem for each atom and build only the rows of the density matrix involving that atom.
+The following solvers selected by `scf.EigenvalueSolver` are covered.
 
-- `DC`：分割統治法。クラスターの一般化固有値問題をそのまま解く。
-- `Krylov`：クラスターの問題を Krylov 部分空間に射影してから解く。
-- `DC-LNO`：クラスターの外側の原子の基底を、局在自然軌道（LNO）に縮約してから解く。
-- `Cluster2`（マニュアル 48 章の低次スケーリング法）と、その他の旧い値は短く扱います。
+- `DC`: divide-and-conquer method. Solves the cluster generalized eigenvalue problem directly.
+- `Krylov`: projects the cluster problem onto a Krylov subspace before solving.
+- `DC-LNO`: contracts the basis of atoms in the outer part of the cluster to localized natural orbitals (LNOs) before solving.
+- `Cluster2` (the low-order scaling method of manual Chapter 48) and other legacy values are treated briefly.
 
-密度行列から格子上の密度を作る手順、ミキシング、全エネルギーと力の式そのものは
-[密度行列と電荷ミキシング](density-mixing.md)、[全エネルギーと力](energy-force.md) の章のとおりで、
-この章はそれらに渡す密度行列 \\( \rho \\) とエネルギー重み付き密度行列 \\( E \\) の作り方を定めます。
+The procedure for building the grid density from the density matrix, mixing, and the expressions for the total energy and forces themselves are
+as in the chapters [Density matrix and charge mixing](density-mixing.md) and [Total energy and forces](energy-force.md);
+this chapter specifies how to build the density matrix \\( \rho \\) and the energy-weighted density matrix \\( E \\) passed to them.
 
-## 記号〔設計〕
+## Notation [Design]
 
-[記法](../../../conventions/notation.md)、[疎ブロック形式](../design/sparse-block-format.md)、[全エネルギーと力](energy-force.md) の記号に加えて、次を使います。
+In addition to the symbols of [Notation](../../../conventions/notation.md), [Sparse block format](../design/sparse-block-format.md), and [Total energy and forces](energy-force.md), the following are used.
 
-| 記号 | 意味 |
+| Symbol | Meaning |
 |---|---|
-| \\( I \\) | 中心原子（単位胞内の原子）。局所問題は \\( I \\) ごとに 1 つ |
-| \\( s = (J, \mathbf L) \\) | クラスターの「サイト」：原子 \\( J \\) の周期像 \\( \mathbf R\_J + \mathbf L \\) |
-| \\( d\_{Is} = \lVert \mathbf R\_J + \mathbf L - \mathbf R\_I \rVert \\) | 中心原子からサイトまでの距離 |
-| \\( r\_{c,J} \\) | 原子 \\( J \\) の PAO のカットオフ半径（基底のうち最大のもの） |
-| \\( R\_{\mathrm{hop}} \\) | `orderN.HoppingRanges`（入力は Å、内部では bohr） |
-| \\( \mathcal F(I) \\) | 第一近接サイトの集合：\\( d\_{Is} \le r\_{c,I} + r\_{c,J} \\)（中心原子自身 \\( (I, \mathbf 0) \\) を含む） |
-| \\( \mathcal S(I) \\) | 第二近接サイトの集合：\\( r\_{c,I} + r\_{c,J} < d\_{Is} \le R\_{\mathrm{hop}} \\) |
-| \\( \mathcal C(I) = \mathcal F(I) \cup \mathcal S(I) \\) | 切断クラスター |
-| \\( H^{(I)}, S^{(I)} \\) | クラスターの Hamiltonian と重なり行列（次元 \\( n\_I \\)） |
-| \\( \varepsilon^{(I)}\_\mu, c^{(I)}\_\mu \\) | 局所問題の固有値・固有ベクトル |
-| \\( g\_s \\) | スピン縮退度。非スピン偏極で 2、共線スピン偏極と非共線で 1 |
-| \\( N\_{\mathrm e} = \sum\_I Z\_I^{\mathrm{val}} - Q \\) | 占有させる電子数（[密度行列と電荷ミキシング](density-mixing.md)） |
-| \\( f(\varepsilon) = 1/(1+e^{(\varepsilon-\mu)/k\_{\mathrm B}T}) \\) | Fermi–Dirac 分布 |
+| \\( I \\) | Central atom (an atom in the unit cell). One local problem per \\( I \\) |
+| \\( s = (J, \mathbf L) \\) | Cluster "site": the periodic image \\( \mathbf R\_J + \mathbf L \\) of atom \\( J \\) |
+| \\( d\_{Is} = \lVert \mathbf R\_J + \mathbf L - \mathbf R\_I \rVert \\) | Distance from the central atom to the site |
+| \\( r\_{c,J} \\) | PAO cutoff radius of atom \\( J \\) (the largest among its basis functions) |
+| \\( R\_{\mathrm{hop}} \\) | `orderN.HoppingRanges` (input in Å, bohr internally) |
+| \\( \mathcal F(I) \\) | Set of first-neighbor sites: \\( d\_{Is} \le r\_{c,I} + r\_{c,J} \\) (includes the central atom itself \\( (I, \mathbf 0) \\)) |
+| \\( \mathcal S(I) \\) | Set of second-neighbor sites: \\( r\_{c,I} + r\_{c,J} < d\_{Is} \le R\_{\mathrm{hop}} \\) |
+| \\( \mathcal C(I) = \mathcal F(I) \cup \mathcal S(I) \\) | Truncated cluster |
+| \\( H^{(I)}, S^{(I)} \\) | Hamiltonian and overlap matrix of the cluster (dimension \\( n\_I \\)) |
+| \\( \varepsilon^{(I)}\_\mu, c^{(I)}\_\mu \\) | Eigenvalues and eigenvectors of the local problem |
+| \\( g\_s \\) | Spin degeneracy. 2 for non-spin-polarized, 1 for collinear spin-polarized and noncollinear |
+| \\( N\_{\mathrm e} = \sum\_I Z\_I^{\mathrm{val}} - Q \\) | Number of electrons to occupy ([Density matrix and charge mixing](density-mixing.md)) |
+| \\( f(\varepsilon) = 1/(1+e^{(\varepsilon-\mu)/k\_{\mathrm B}T}) \\) | Fermi–Dirac distribution |
 
-マニュアル・標準出力では \\( \mathcal F(I) \\)、\\( \mathcal S(I) \\) の大きさをそれぞれ FNAN、SNAN と呼んでいます。
+In the manual and standard output, the sizes of \\( \mathcal F(I) \\) and \\( \mathcal S(I) \\) are called FNAN and SNAN, respectively.
 
-## 解法の選択〔公開〕〔規約〕
+## Choice of solver [Public] [Convention]
 
-〔公開〕マニュアル 8.2 節と 27 章によれば、`scf.EigenvalueSolver` に `DC`、`DC-LNO`、`Krylov` を指定すると O(N) 法になり、
-48 章の低次スケーリング法は `cluster2` で選びます。値の大文字・小文字は区別しません〔規約〕。
+[Public] According to manual Sec. 8.2 and Chapter 27, specifying `DC`, `DC-LNO`, or `Krylov` for `scf.EigenvalueSolver` selects an O(N) method,
+and the low-order scaling method of Chapter 48 is selected with `cluster2`. Values are case-insensitive [Convention].
 
-〔規約〕既存実装が受け付ける値と、O(N) 法に関する扱いは次のとおりです。
+[Convention] The values accepted by the existing implementation and their treatment with respect to O(N) methods are as follows.
 
-| 値 | 内容 | スピン | 備考 |
+| Value | Content | Spin | Remarks |
 |---|---|---|---|
-| `DC` | 分割統治法 | `Off`・`On`・`NC` | 共線でスピン軌道相互作用を指定すると停止 |
-| `Krylov` | Krylov 部分空間法 | `Off`・`On` | `NC` は「未対応」と表示して停止 |
-| `DC-LNO` | LNO による分割統治法 | `Off`・`On`・`NC` | |
-| `Cluster2` | 低次スケーリング法（マニュアル 48 章） | `Off`・`On` | `NC` では何も計算せずに戻る（下の「端の場合」） |
-| `Cluster-LNO` | LNO で縮約した Cluster 計算 | | `LNOs.Num` が必須。この章では扱わない |
-| `EGAC` | 公開資料に記載のない解法 | | 〔未確定〕 |
-| `Recursion`、`GDC` | 旧い解法 | | 「サポートされていない」と表示して停止 |
-| `Cluster-DIIS` | 旧い解法 | | 受け付けるが、SCF で固有値問題を解かない（実質的に使えない） |
+| `DC` | Divide-and-conquer method | `Off`, `On`, `NC` | Stops if spin-orbit coupling is specified with collinear spin |
+| `Krylov` | Krylov subspace method | `Off`, `On` | `NC` prints "not supported" and stops |
+| `DC-LNO` | Divide-and-conquer with LNOs | `Off`, `On`, `NC` | |
+| `Cluster2` | Low-order scaling method (manual Chapter 48) | `Off`, `On` | With `NC` returns without computing anything (see "Edge cases" below) |
+| `Cluster-LNO` | Cluster calculation contracted with LNOs | | `LNOs.Num` is required. Not treated in this chapter |
+| `EGAC` | Solver not described in the public documents | | [Open] |
+| `Recursion`, `GDC` | Legacy solvers | | Prints "not supported" and stops |
+| `Cluster-DIIS` | Legacy solver | | Accepted, but the eigenvalue problem is not solved in the SCF (effectively unusable) |
 
-- `scf.EigenvalueSolver` を省略すると、既存実装は `Recursion` を選んだことになり停止します。実質的に必須のキーワードです。
-- 〔公開〕マニュアル 8.2 節は低次スケーリング法の値を `ON2` と書いていますが、既存実装は `ON2` を受け付けず（入力エラー）、
-  48 章の `cluster2` が正しい値です。
-- DC、Krylov、DC-LNO は実空間の周期像をサイトとして直接扱うので、k 点（`scf.Kgrid`）は使いません。
-  周期系でも孤立系でも同じ手順です〔規約〕。
+- If `scf.EigenvalueSolver` is omitted, the existing implementation treats it as `Recursion` and stops. The keyword is effectively mandatory.
+- [Public] Manual Sec. 8.2 gives the value for the low-order scaling method as `ON2`, but the existing implementation does not accept `ON2` (input error);
+  `cluster2` of Chapter 48 is the correct value.
+- DC, Krylov, and DC-LNO treat real-space periodic images directly as sites, so k-points (`scf.Kgrid`) are not used.
+  The procedure is the same for periodic and isolated systems [Convention].
 
-## 1. 切断クラスター
+## 1. Truncated cluster
 
-### 定義〔公開〕
+### Definition [Public]
 
-TN3 の 2.3 節とマニュアル 27.1 節によれば、各原子を中心とする半径 \\( R\_{\mathrm{hop}} \\) の球に入る原子で切断クラスターを作り、
-原子ごとに独立な小さい問題を解きます。マニュアル 27.4 節によれば、中心原子と基底関数の重なりがある原子を第一近接、
-クラスターのそれ以外の原子を第二近接と呼びます。
+According to TN3 Sec. 2.3 and manual Sec. 27.1, a truncated cluster is built from the atoms inside a sphere of radius \\( R\_{\mathrm{hop}} \\) centered on each atom,
+and an independent small problem is solved for each atom. According to manual Sec. 27.4, atoms whose basis functions overlap with those of the central atom are called first neighbors,
+and the other atoms of the cluster second neighbors.
 
-〔公開〕の注記：マニュアル 27.4 節の英文は「カットオフ半径の和が原子間距離より小さい原子を第一近接とする」と読めますが、
-重なりがある（第一近接である）のは原子間距離がカットオフ半径の和より小さい場合です。既存実装も後者です（次節）。
-また TN3 は、距離による切断に加えて「ホッピングの回数」による論理的な切断を述べていますが、
-既存実装は `orderN.NumHoppings`（既定値 2）を読み込むだけで使っていません〔規約〕。
+Note on [Public]: the English text of manual Sec. 27.4 reads as "atoms for which the sum of cutoff radii is smaller than the interatomic distance are first neighbors", but
+there is overlap (i.e. the atom is a first neighbor) when the interatomic distance is smaller than the sum of the cutoff radii. The existing implementation also uses the latter (next section).
+In addition, TN3 describes a logical truncation by "number of hoppings" besides truncation by distance, but
+the existing implementation only reads `orderN.NumHoppings` (default 2) and does not use it [Convention].
 
-### サイトの選び方〔規約〕
+### Site selection [Convention]
 
-- 第一近接 \\( \mathcal F(I) \\) は \\( d\_{Is} \le r\_{c,I} + r\_{c,J} \\)（等号を含む）を満たすすべてのサイトです。
-  これは [疎ブロック形式](../design/sparse-block-format.md) の原子対の範囲と同じで、\\( R\_{\mathrm{hop}} \\) に依りません。
-- 第二近接 \\( \mathcal S(I) \\) は \\( r\_{c,I} + r\_{c,J} < d\_{Is} \le R\_{\mathrm{hop}} \\) を満たすサイトです。
-  \\( R\_{\mathrm{hop}} \\) が \\( r\_{c,I} + r\_{c,J} \\) より小さければ、クラスターは第一近接だけになります。
-- サイトは原子の周期像です。単位胞が小さいと、同じ原子の複数の像（中心原子自身の \\( \mathbf L \ne 0 \\) の像を含む）が
-  別々のサイトとしてクラスターに入ります。
-- クラスター内のサイトの並びは、中心原子が先頭、続いて第一近接、続いて第二近接です。
-  DC-LNO では第二近接を距離の昇順に並べ替えます（同じ距離の順序は〔未確定〕）。
+- The first neighbors \\( \mathcal F(I) \\) are all sites satisfying \\( d\_{Is} \le r\_{c,I} + r\_{c,J} \\) (including equality).
+  This is the same as the range of atom pairs in the [Sparse block format](../design/sparse-block-format.md) and does not depend on \\( R\_{\mathrm{hop}} \\).
+- The second neighbors \\( \mathcal S(I) \\) are sites satisfying \\( r\_{c,I} + r\_{c,J} < d\_{Is} \le R\_{\mathrm{hop}} \\).
+  If \\( R\_{\mathrm{hop}} \\) is smaller than \\( r\_{c,I} + r\_{c,J} \\), the cluster consists of first neighbors only.
+- Sites are periodic images of atoms. If the unit cell is small, multiple images of the same atom (including images of the central atom itself with \\( \mathbf L \ne 0 \\)) enter
+  the cluster as separate sites.
+- The order of sites in the cluster is: the central atom first, then first neighbors, then second neighbors.
+  In DC-LNO, the second neighbors are re-sorted in ascending order of distance (the order for equal distances is [Open]).
 
-### クラスターの行列〔規約〕
+### Cluster matrices [Convention]
 
-\\( H^{(I)} \\)、\\( S^{(I)} \\) は全系の行列のクラスターへの主小行列です。サイト \\( s = (J, \mathbf L) \\)、\\( s' = (J', \mathbf L') \\) のブロックは
+\\( H^{(I)} \\) and \\( S^{(I)} \\) are the principal submatrices of the whole-system matrices restricted to the cluster. The block for sites \\( s = (J, \mathbf L) \\), \\( s' = (J', \mathbf L') \\) is
 
 $$
 H^{(I)}\_{s\alpha, s'\beta} = H\_{J\alpha, J'\beta}(\mathbf L' - \mathbf L),\qquad
 S^{(I)}\_{s\alpha, s'\beta} = S\_{J\alpha, J'\beta}(\mathbf L' - \mathbf L)
 $$
 
-で、\\( s' \\) が \\( s \\) から見て第一近接（\\( \lVert \mathbf R\_{J'} + \mathbf L' - \mathbf R\_J - \mathbf L\rVert \le r\_{c,J} + r\_{c,J'} \\)）の場合だけ値を持ち、それ以外は 0 です。
-\\( H \\) は SCF の各反復の Kohn–Sham Hamiltonian（スピンごと）で、軌道を縮約している場合は縮約後の基底の行列です。
-クラスターの外とのつながりは捨てるので、\\( H^{(I)} \\) は「クラスターを真空中に切り出した」問題ではなく、
-Hartree・交換相関ポテンシャルは全系の密度から作ったものです（TN3 2.3 節）。
+and is nonzero only if \\( s' \\) is a first neighbor of \\( s \\) (\\( \lVert \mathbf R\_{J'} + \mathbf L' - \mathbf R\_J - \mathbf L\rVert \le r\_{c,J} + r\_{c,J'} \\)); otherwise it is 0.
+\\( H \\) is the Kohn–Sham Hamiltonian (per spin) of each SCF iteration; if orbitals are contracted, it is the matrix in the contracted basis.
+Connections to outside the cluster are discarded, so \\( H^{(I)} \\) is not a problem of "the cluster cut out into vacuum":
+the Hartree and exchange-correlation potentials are built from the density of the whole system (TN3 Sec. 2.3).
 
-### サイト数の固定：`orderN.FNAN+SNAN`〔公開〕〔規約〕
+### Fixing the number of sites: `orderN.FNAN+SNAN` [Public] [Convention]
 
-〔公開〕マニュアル 27.4 節：格子定数などを変えると \\( \lvert\mathcal C(I)\rvert \\) が飛び、エネルギー曲線が跳ぶので、
-原子ごとにクラスターのサイト数を指定できます。
+[Public] Manual Sec. 27.4: when the lattice constant etc. is changed, \\( \lvert\mathcal C(I)\rvert \\) jumps and the energy curve becomes discontinuous, so
+the number of cluster sites can be specified per atom.
 
-〔規約〕既存実装の挙動は次のとおりです。
+[Convention] The behavior of the existing implementation is as follows.
 
-- ブロックの各行は **3 つの整数** \\( (I, a, b) \\) を読み、目標のサイト数を \\( a + b \\) とします
-  （行の順は原子番号の順で、1 列目が原子番号と一致しないと入力エラー）。
-  マニュアルの例は 2 列（原子番号と FNAN+SNAN）ですが、その形式は既存実装では入力エラーになります。
-- \\( a + b \\) が距離で決めたサイト数（中心原子を除く \\( \lvert\mathcal F\rvert + \lvert\mathcal S\rvert \\)）以下のとき、
-  第二近接を距離の昇順に並べ、先頭の \\( a + b - \lvert\mathcal F(I)\rvert \\) 個（負なら 0 個）だけを残します。第一近接は削りません。
-  \\( a + b \\) の方が大きいときは何もしません（クラスターを広げることはしません）。
-- この調整は最初の MD ステップでだけ行われ、2 ステップ目以降は距離による選び方に戻ります（〔未確定〕：意図した挙動か）。
+- Each line of the block reads **three integers** \\( (I, a, b) \\), and the target number of sites is \\( a + b \\)
+  (lines are in order of atom number; an input error occurs if the first column does not match the atom number).
+  The manual's example has two columns (atom number and FNAN+SNAN), but that format is an input error in the existing implementation.
+- When \\( a + b \\) is less than or equal to the number of sites determined by distance (\\( \lvert\mathcal F\rvert + \lvert\mathcal S\rvert \\) excluding the central atom),
+  the second neighbors are sorted in ascending order of distance and only the first \\( a + b - \lvert\mathcal F(I)\rvert \\) (0 if negative) are kept. First neighbors are never removed.
+  When \\( a + b \\) is larger, nothing is done (the cluster is not enlarged).
+- This adjustment is made only at the first MD step; from the second step onward the distance-based selection is used again ([Open]: whether this is intended).
 
-## 2. 分割統治法（DC）
+## 2. Divide-and-conquer method (DC)
 
-### 局所問題〔公開〕
+### Local problem [Public]
 
-TN3 Eq. 3–4、TN26 Eq. 27 のとおり、原子 \\( I \\) ごとに
+Following TN3 Eqs. 3–4 and TN26 Eq. 27, for each atom \\( I \\)
 
 $$
 H^{(I)} c^{(I)}\_\mu = \varepsilon^{(I)}\_\mu S^{(I)} c^{(I)}\_\mu,\qquad
 G^{(I)}(Z) = \sum\_\mu \frac{c^{(I)}\_\mu c^{(I)\dagger}\_\mu}{Z - \varepsilon^{(I)}\_\mu}
 $$
 
-を解き、Green 関数のうち中心原子の行だけを使って密度行列を作ります（TN3 は「つぎはぎ」と呼んでいます）。
-留数を
+is solved, and the density matrix is built using only the rows of the Green's function belonging to the central atom (TN3 calls this "patching").
+Writing the residues as
 
 $$
 r^{(I)}\_{\mu;\alpha, s\beta} = c^{(I)}\_{(I,\mathbf 0)\alpha,\mu}\\, c^{(I)}\_{s\beta,\mu},\qquad s \in \mathcal F(I)
 $$
 
-と書くと、Fermi 分布の積分は留数の和になり、
+the integral over the Fermi distribution becomes a sum over residues,
 
 $$
 \rho\_{I\alpha, J\beta}(\mathbf L) = \sum\_\mu f(\varepsilon^{(I)}\_\mu)\\, r^{(I)}\_{\mu;\alpha, s\beta},\qquad
 E\_{I\alpha, J\beta}(\mathbf L) = \sum\_\mu f(\varepsilon^{(I)}\_\mu)\\, \varepsilon^{(I)}\_\mu\\, r^{(I)}\_{\mu;\alpha, s\beta}
 $$
 
-です（\\( s = (J, \mathbf L) \\)、スピンごと。TN26 Eq. 24–25）。共線計算では局所問題は実対称で、\\( c \\) は実数です。
+(\\( s = (J, \mathbf L) \\), per spin; TN26 Eqs. 24–25). In collinear calculations the local problem is real symmetric and \\( c \\) is real.
 
-### 重なり行列の扱い〔規約〕
+### Treatment of the overlap matrix [Convention]
 
-- [一般化固有値問題](generalized-eigen.md) の規則 C（\\( S^{(I)} \\) の固有値のうち \\( 10^{-9} \\) 未満のものとその固有ベクトルを除く）で直交化し、
-  残った部分空間の標準固有値問題の **全固有対** を求めます。除いた方向に対応する固有値には 1000 Hartree を入れ、占有数 0 として扱います。
-- \\( S^{(I)} \\) の分解は SCF の最初の 2 反復で作り、以後は保存したものを使います（原子配置が変わらない限り結果は同じ）。
+- Orthogonalize with rule C of [Generalized eigenvalue problem](generalized-eigen.md) (remove eigenvalues of \\( S^{(I)} \\) below \\( 10^{-9} \\) and their eigenvectors), and
+  find **all eigenpairs** of the standard eigenvalue problem in the remaining subspace. Eigenvalues corresponding to the removed directions are set to 1000 Hartree and treated as having occupation 0.
+- The decomposition of \\( S^{(I)} \\) is built in the first two SCF iterations and the saved one is used thereafter (the result is the same as long as the atomic configuration does not change).
 
-### 電子数と化学ポテンシャル〔公開〕〔規約〕
+### Electron number and chemical potential [Public] [Convention]
 
-〔公開〕TN3 Eq. 29–31：中心原子に Mulliken 重み
+[Public] TN3 Eqs. 29–31: the central atom is given the Mulliken weight
 
 $$
 \kappa^{(I)}\_\mu = \sum\_{\alpha}\sum\_{s=(J,\mathbf L)\in\mathcal F(I)}\sum\_\beta r^{(I)}\_{\mu;\alpha,s\beta}\\, S\_{I\alpha, J\beta}(\mathbf L)
 $$
 
-を付け、全系で **共通の** 化学ポテンシャル \\( \mu \\) を
+and the chemical potential \\( \mu \\), **common** to the whole system, is determined from
 
 $$
 N(\mu) = g\_s \sum\_\sigma \sum\_I \sum\_\mu f(\varepsilon^{(I,\sigma)}\_\mu)\\, \kappa^{(I,\sigma)}\_\mu = N\_{\mathrm e}
 $$
 
-から決めます。電子はクラスター間で移動でき、各原子の電子数は固定しません。通信するのは原子ごとの電子数の和だけです。
-\\( \sum\_I\sum\_{\mathcal F(I)} \rho S \\) の形の和なので、得られた \\( \rho \\) は [密度行列と電荷ミキシング](density-mixing.md) の和則
-\\( g\_s \sum\_\sigma \sum \rho S = N\_{\mathrm e} \\) を厳密に満たします（`tools/check_on_methods.py`）。
+Electrons can move between clusters, and the electron number of each atom is not fixed. Only the sum of per-atom electron numbers is communicated.
+Since it is a sum of the form \\( \sum\_I\sum\_{\mathcal F(I)} \rho S \\), the resulting \\( \rho \\) satisfies exactly the sum rule
+\\( g\_s \sum\_\sigma \sum \rho S = N\_{\mathrm e} \\) of [Density matrix and charge mixing](density-mixing.md) (`tools/check_on_methods.py`).
 
-〔規約〕\\( \mu \\) は二分法で求めます。
+[Convention] \\( \mu \\) is found by bisection.
 
-| 解法 | 初期区間（Hartree） | 停止条件 \\( \lvert N(\mu) - N\_{\mathrm e}\rvert \\) | Fermi 分布の指数の切り詰め |
+| Solver | Initial interval (Hartree) | Stopping criterion \\( \lvert N(\mu) - N\_{\mathrm e}\rvert \\) | Clipping of the Fermi-distribution exponent |
 |---|---|---|---|
-| DC（共線） | \\( [-30, 30] \\) | \\( < 10^{-13} \\) | \\( x \in [-30, 30] \\) |
-| DC（非共線） | \\( [-15, 15] \\) | \\( < 10^{-11} \\) | \\( x \in [-50, 50] \\) |
+| DC (collinear) | \\( [-30, 30] \\) | \\( < 10^{-13} \\) | \\( x \in [-30, 30] \\) |
+| DC (noncollinear) | \\( [-15, 15] \\) | \\( < 10^{-11} \\) | \\( x \in [-50, 50] \\) |
 | Krylov | \\( [-10, 10] \\) | \\( < 10^{-11} \\) | \\( x \in [-30, 30] \\) |
-| DC-LNO | SCF の 1・2 反復目は \\( [-10, 10] \\)、以後は前の \\( \mu \\) の \\( \pm 5 \\) | \\( < 10^{-12} \\) | \\( x \in [-30, 30] \\) |
+| DC-LNO | \\( [-10, 10] \\) in SCF iterations 1 and 2, thereafter the previous \\( \mu \\) \\( \pm 5 \\) | \\( < 10^{-12} \\) | \\( x \in [-30, 30] \\) |
 
-反復の上限はどれも 1000 回で、\\( x = (\varepsilon - \mu)/k\_{\mathrm B}T \\) です。
-絶縁体で \\( \mu \\) がギャップ内のどこに止まるかが不定なのは Cluster・Band と同じです（[密度行列と電荷ミキシング](density-mixing.md)）。
+The iteration limit is 1000 in all cases, and \\( x = (\varepsilon - \mu)/k\_{\mathrm B}T \\).
+As with Cluster and Band, it is undetermined where in the gap \\( \mu \\) stops for insulators ([Density matrix and charge mixing](density-mixing.md)).
 
-### バンドエネルギー〔規約〕
+### Band energy [Convention]
 
-\\( U\_{\mathrm{ele}} = g\_s\sum\_\sigma\sum\_I\sum\_\mu f(\varepsilon^{(I,\sigma)}\_\mu)\\, \varepsilon^{(I,\sigma)}\_\mu\\, \kappa^{(I,\sigma)}\_\mu \\) を計算し、
-\\( \sum\_{\mathrm{pairs}} \rho H \\) も別に求めます。全系の対角化と違い、O(N) 法では両者は一致しません（\\( \kappa \\) の重みが \\( H \\) ではなく \\( S \\) だから）。
+\\( U\_{\mathrm{ele}} = g\_s\sum\_\sigma\sum\_I\sum\_\mu f(\varepsilon^{(I,\sigma)}\_\mu)\\, \varepsilon^{(I,\sigma)}\_\mu\\, \kappa^{(I,\sigma)}\_\mu \\) is computed, and
+\\( \sum\_{\mathrm{pairs}} \rho H \\) is also computed separately. Unlike full diagonalization, the two do not agree in O(N) methods (because the weight \\( \kappa \\) uses \\( S \\), not \\( H \\)).
 
-### 非共線〔規約〕
+### Noncollinear [Convention]
 
-非共線（`scf.SpinPolarization NC`）では局所問題は \\( 2n\_I \\) 次元の複素 Hermite 行列で、重なりは \\( I\_2\otimes S^{(I)} \\) です。
-\\( S^{(I)} \\) の扱い（規則 C）、留数、Mulliken 重み、\\( \mu \\) の決め方は共線と同じ形で、2×2 のスピンブロックごとに \\( \rho \\)、\\( E \\) を作ります
-（スピン成分の持ち方は [密度行列と電荷ミキシング](density-mixing.md) の非共線の節）。
+In the noncollinear case (`scf.SpinPolarization NC`), the local problem is a \\( 2n\_I \\)-dimensional complex Hermitian matrix with overlap \\( I\_2\otimes S^{(I)} \\).
+The treatment of \\( S^{(I)} \\) (rule C), residues, Mulliken weights, and the determination of \\( \mu \\) have the same form as in the collinear case, and \\( \rho \\) and \\( E \\) are built per 2×2 spin block
+(for how spin components are stored, see the noncollinear section of [Density matrix and charge mixing](density-mixing.md)).
 
-### 密度行列の非対称性〔規約〕
+### Asymmetry of the density matrix [Convention]
 
-\\( \rho\_{I\alpha,J\beta}(\mathbf L) \\) は原子 \\( I \\) のクラスターから、\\( \rho\_{J\beta,I\alpha}(-\mathbf L) \\) は原子 \\( J \\) のクラスターから作るので、
-一般に \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\) です（クラスターを全系に広げた極限でだけ一致）。
-既存実装は対称化せず、両方のブロックをそのまま保持して密度・エネルギー・力に使います。
-格子上の密度 \\( \sum \rho\_{I\alpha,J\beta}\phi\_{I\alpha}\phi\_{J\beta} \\) は、実質的に対称部分だけを使うことになります。
+\\( \rho\_{I\alpha,J\beta}(\mathbf L) \\) is built from the cluster of atom \\( I \\), and \\( \rho\_{J\beta,I\alpha}(-\mathbf L) \\) from the cluster of atom \\( J \\), so
+in general \\( \rho\_{I\alpha,J\beta}(\mathbf L) \ne \rho\_{J\beta,I\alpha}(-\mathbf L) \\) (they agree only in the limit where the cluster is extended to the whole system).
+The existing implementation does not symmetrize; it keeps both blocks as they are and uses them for the density, energy, and forces.
+The grid density \\( \sum \rho\_{I\alpha,J\beta}\phi\_{I\alpha}\phi\_{J\beta} \\) effectively uses only the symmetric part.
 
-## 3. Krylov 部分空間法
+## 3. Krylov subspace method
 
-### 考え方〔公開〕
+### Idea [Public]
 
-TN3 Eq. 5–8：\\( A = (S^{(I)})^{-1} H^{(I)} \\) と、中心付近の軌道からなる出発ベクトルの組 \\( W\_0 \\)（\\( n\_I \times m \\)）から
+TN3 Eqs. 5–8: from \\( A = (S^{(I)})^{-1} H^{(I)} \\) and a set of starting vectors \\( W\_0 \\) (\\( n\_I \times m \\)) consisting of orbitals near the center,
 
 $$
 \mathcal K\_q = \mathrm{span}\\{ W\_0, A W\_0, A^2 W\_0, \dots, A^{q} W\_0 \\}
 $$
 
-を作り、\\( S^{(I)} \\) の内積で正規直交な基底 \\( U \\)（\\( U^{\mathsf T} S^{(I)} U = 1 \\)）に射影した標準固有値問題
+is built, and the standard eigenvalue problem projected onto a basis \\( U \\) orthonormal in the \\( S^{(I)} \\) inner product (\\( U^{\mathsf T} S^{(I)} U = 1 \\)),
 
 $$
 H\_K b\_\mu = \varepsilon\_\mu b\_\mu,\qquad H\_K = U^{\mathsf T} H^{(I)} U,\qquad c\_\mu = U b\_\mu
 $$
 
-を解きます。射影した Green 関数は、\\( W\_0 \\) で挟んだモーメント \\( W\_0^{\mathsf T} S A^{p} W\_0 \\) を \\( p \le 2q+1 \\) まで厳密に再現します。
-〔設計〕（検算）\\( t = U^{\mathsf T} S W\_0 \\) とすると \\( W\_0^{\mathsf T} S A^{p} W\_0 = t^{\mathsf T} H\_K^{p} t \\)（\\( p \le 2q+1 \\)）が成り立ち、
-\\( p = 2q+2 \\) では一般に成り立ちません（`tools/check_on_methods.py`、\\( q = 3 \\) で \\( p \le 7 \\) の相対誤差 \\( 10^{-15} \\)、\\( p = 8 \\) で \\( 10^{-11} \\) 程度）。
+is solved. The projected Green's function reproduces exactly the moments \\( W\_0^{\mathsf T} S A^{p} W\_0 \\) sandwiched by \\( W\_0 \\) up to \\( p \le 2q+1 \\).
+[Design] (checked) With \\( t = U^{\mathsf T} S W\_0 \\), \\( W\_0^{\mathsf T} S A^{p} W\_0 = t^{\mathsf T} H\_K^{p} t \\) holds (\\( p \le 2q+1 \\)),
+and in general does not hold for \\( p = 2q+2 \\) (`tools/check_on_methods.py`; with \\( q = 3 \\), relative error \\( 10^{-15} \\) for \\( p \le 7 \\) and about \\( 10^{-11} \\) for \\( p = 8 \\)).
 
-TN3 は、密度行列の収束に必要な Krylov 次元は絶縁体でクラスターの基底数の 40〜50% 程度と報告しています。
+TN3 reports that the Krylov dimension needed for convergence of the density matrix is about 40–50% of the number of basis functions of the cluster for insulators.
 
-### 出発ベクトル（コア）〔公開〕〔規約〕
+### Starting vectors (core) [Public] [Convention]
 
-〔公開〕マニュアル 27.3 節：`orderN.Expand.Core` が `on`（既定）なら最近接距離 \\( r\_{\min} \\) の 1.2 倍の球内の原子、
-`off` なら中心原子だけを「コア」とし、その軌道を出発ベクトルにします。
+[Public] Manual Sec. 27.3: if `orderN.Expand.Core` is `on` (default), the atoms within a sphere of 1.2 times the nearest-neighbor distance \\( r\_{\min} \\),
+and if `off`, only the central atom, form the "core", whose orbitals are used as starting vectors.
 
-〔規約〕既存実装の規則は次のとおりで、倍率はマニュアルの記述（1.2）と少し異なります。
+[Convention] The rules of the existing implementation are as follows; the factor differs slightly from the manual's description (1.2).
 
-- \\( r\_{\min} \\) は第一近接（中心原子を除く）の最小距離です。
-- `on` のとき、まず \\( d\_{Is} < 1.10\\, r\_{\min} \\) のサイト（中心原子を含む、第一近接の中から）をコアとし、
-  その軌道数が 30 以下なら倍率を 1.2 倍した \\( d\_{Is} < 1.32\\, r\_{\min} \\) で選び直します（選び直しは 1 回だけ）。
-- `off` のとき、倍率は 0.80 で、コアは中心原子だけになります。
-- 出発ベクトル \\( W\_0 \\) はコアの各軌道の単位ベクトル（\\( m \\) = コアの軌道数）を、次節の方法で \\( S \\) 正規直交化したものです。
+- \\( r\_{\min} \\) is the minimum distance among the first neighbors (excluding the central atom).
+- For `on`, first the sites with \\( d\_{Is} < 1.10\\, r\_{\min} \\) (including the central atom, chosen from the first neighbors) form the core,
+  and if the number of their orbitals is 30 or less, the selection is redone with the factor multiplied by 1.2, \\( d\_{Is} < 1.32\\, r\_{\min} \\) (redone only once).
+- For `off`, the factor is 0.80 and the core is only the central atom.
+- The starting vectors \\( W\_0 \\) are the unit vectors of the core orbitals (\\( m \\) = number of core orbitals), \\( S \\)-orthonormalized by the method of the next subsection.
 
-### Krylov 次元〔公開〕〔規約〕
+### Krylov dimension [Public] [Convention]
 
-〔公開〕マニュアル 27.3 節：`orderN.KrylovH.order` が Hamiltonian の Krylov 部分空間の次元、
-`orderN.KrylovS.order`（既定値は `orderN.KrylovH.order` の 4 倍）が重なり行列の Krylov 部分空間の次元です。
+[Public] Manual Sec. 27.3: `orderN.KrylovH.order` is the dimension of the Krylov subspace of the Hamiltonian,
+and `orderN.KrylovS.order` (default 4 times `orderN.KrylovH.order`) is the dimension of the Krylov subspace of the overlap matrix.
 
-〔規約〕次元はブロックの数で決めます。\\( n\_I \\) をクラスターの基底数として、
+[Convention] The dimension is determined by the number of blocks. With \\( n\_I \\) the number of basis functions of the cluster,
 
 $$
 q + 1 = \min\left( \left\lceil \frac{K\_H}{m} \right\rceil,\ \left\lceil \frac{n\_I}{m} \right\rceil \right),\qquad
 \dim U = (q+1)\\, m
 $$
 
-です（\\( K\_H \\) は `orderN.KrylovH.order`、既定値 400）。\\( S \\) の Krylov 部分空間も同じ規則で \\( K\_S \\) から決めます。
+(\\( K\_H \\) is `orderN.KrylovH.order`, default 400). The Krylov subspace of \\( S \\) is determined from \\( K\_S \\) by the same rule.
 
-- \\( \dim U < n\_I \\) なら次節の Krylov 部分空間を作ります。
-- \\( \dim U \ge n\_I \\) なら Krylov 部分空間を作らず、クラスターの全軌道の単位ベクトルを \\( S \\) 正規直交化したもの
-  （規則 C と同じ閾値で方向を落とす）を \\( U \\) とします。このとき結果は（埋め込み行列の更新を除いて）DC と同じです。
+- If \\( \dim U < n\_I \\), the Krylov subspace of the next subsection is built.
+- If \\( \dim U \ge n\_I \\), no Krylov subspace is built; instead \\( U \\) is the \\( S \\)-orthonormalized set of unit vectors of all cluster orbitals
+  (directions dropped with the same threshold as rule C). In this case the result is the same as DC (except for the update of the embedding matrix).
 
-### 基底の生成と直交化〔公開〕〔規約〕
+### Basis generation and orthogonalization [Public] [Convention]
 
-〔公開〕TN3 Eq. 9–16 の \\( S \\) 内積のブロック Gram–Schmidt 法です。
+[Public] The block Gram–Schmidt method in the \\( S \\) inner product of TN3 Eqs. 9–16.
 
-〔規約〕既存実装は次の順で \\( U \\) を作ります。
+[Convention] The existing implementation builds \\( U \\) in the following order.
 
-1. \\( W\_0 \\) を \\( S \\) 正規直交化します：\\( G = W^{\mathsf T} S W \\) を対角化し、固有値 \\( g \le 10^{-9} \\) の方向を 0 にして \\( W \leftarrow W X g^{-1/2} \\)。
-2. \\( k = 0, \dots, q-1 \\) について、\\( V = A W\_k \\) を作り（\\( A \\) の作り方は次節）、それまでのすべてのブロックに対して
-   \\( V \leftarrow V - W\_j (W\_j^{\mathsf T} S V) \\)（古典的ブロック Gram–Schmidt、1 回）とし、1. と同じ方法で \\( S \\) 正規直交化して \\( W\_{k+1} \\) とします。
-3. 全ブロックを並べた \\( U\_0 = (W\_0, \dots, W\_q) \\) について \\( F = U\_0^{\mathsf T} S U\_0 \\) を対角化し、
-   固有値 \\( \le 10^{-9} \\) の方向を落として \\( U = U\_0 X F^{-1/2} \\) とします（TN3 Eq. 9 の最後の直交変換）。
-   落とした方向の列は 0 のまま残し、その数 \\( z \\) を記録します。
-4. \\( U \\) は Krylov 部分空間の **最初の SCF 反復の Hamiltonian** で作り、同じ原子配置の以後の反復では作り直しません
-   （MD・構造最適化の各ステップの最初の反復で作り直します）。スピンごとに別の \\( U \\) を持ちます。
+1. \\( S \\)-orthonormalize \\( W\_0 \\): diagonalize \\( G = W^{\mathsf T} S W \\), set directions with eigenvalue \\( g \le 10^{-9} \\) to 0, and \\( W \leftarrow W X g^{-1/2} \\).
+2. For \\( k = 0, \dots, q-1 \\), form \\( V = A W\_k \\) (how \\( A \\) is formed is in the next subsection), apply against all previous blocks
+   \\( V \leftarrow V - W\_j (W\_j^{\mathsf T} S V) \\) (classical block Gram–Schmidt, once), and \\( S \\)-orthonormalize by the same method as step 1 to obtain \\( W\_{k+1} \\).
+3. For \\( U\_0 = (W\_0, \dots, W\_q) \\), all blocks concatenated, diagonalize \\( F = U\_0^{\mathsf T} S U\_0 \\),
+   drop directions with eigenvalue \\( \le 10^{-9} \\), and set \\( U = U\_0 X F^{-1/2} \\) (the final orthogonal transformation of TN3 Eq. 9).
+   Columns of the dropped directions are left as 0, and their number \\( z \\) is recorded.
+4. \\( U \\) is built with the Hamiltonian of the **first SCF iteration** of the Krylov subspace and is not rebuilt in subsequent iterations with the same atomic configuration
+   (it is rebuilt in the first iteration of each MD or geometry-optimization step). A separate \\( U \\) is kept per spin.
 
-閾値 \\( 10^{-9} \\) は [一般化固有値問題](generalized-eigen.md) の規則 C と同じ固定値です。
+The threshold \\( 10^{-9} \\) is the same fixed value as rule C of [Generalized eigenvalue problem](generalized-eigen.md).
 
-### 重なり行列の逆〔公開〕〔規約〕
+### Inverse of the overlap matrix [Public] [Convention]
 
-〔公開〕マニュアル 27.3 節：`orderN.Exact.Inverse.S` が `on`（既定）なら \\( (S^{(I)})^{-1} \\) を厳密に計算し、
-`off` なら \\( S \\) の Krylov 部分空間（次元 `orderN.KrylovS.order`）で近似します。TN3 Eq. 17–26 によれば近似逆行列は
+[Public] Manual Sec. 27.3: if `orderN.Exact.Inverse.S` is `on` (default), \\( (S^{(I)})^{-1} \\) is computed exactly;
+if `off`, it is approximated in the Krylov subspace of \\( S \\) (dimension `orderN.KrylovS.order`). According to TN3 Eqs. 17–26, the approximate inverse is
 
 $$
 Q = V (V^{\mathsf T} S V)^{-1} V^{\mathsf T},\qquad V = \text{span}\\{ V\_0, S V\_0, \dots, S^{q'} V\_0 \\}
 $$
 
-で、\\( V \\) は通常の（Euclid の）内積で正規直交化します。
+and \\( V \\) is orthonormalized in the ordinary (Euclidean) inner product.
 
-〔規約〕
+[Convention]
 
-- `on`：\\( S^{(I)} \\) の Cholesky 分解から逆行列を作ります。正則化はしません（正定値でなければエラーを表示して続行します）。
-  逆行列は最初の SCF 反復で 1 回だけ作ります。
-- `off`：\\( V\_0 \\) は \\( W\_0 \\) と同じコアの単位ベクトル、\\( V \\) の生成は上の 1.〜2. と同じ形で内積を Euclid にしたもの、
-  \\( (V^{\mathsf T} S V)^{-1} \\) は固有値 \\( \le 10^{-9} \\) の方向を落とした擬似逆行列です。
-- 内部のフラグ `orderN.Inverse.S` は `orderN.Exact.Inverse.S` の反対の値で上書きされるので、入力で指定しても効きません。
-- 〔公開〕マニュアル 27.3 節は、共有結合の系では `orderN.Exact.Inverse.S` と `orderN.Expand.Core` を `on`、
-  単純金属では両方を `off` にすると収束がよくなることがあると述べています。
+- `on`: the inverse is built from the Cholesky decomposition of \\( S^{(I)} \\). No regularization is applied (if not positive definite, an error is printed and the calculation continues).
+  The inverse is built only once, in the first SCF iteration.
+- `off`: \\( V\_0 \\) consists of the same core unit vectors as \\( W\_0 \\); \\( V \\) is generated in the same way as steps 1–2 above with the Euclidean inner product;
+  \\( (V^{\mathsf T} S V)^{-1} \\) is a pseudo-inverse dropping directions with eigenvalue \\( \le 10^{-9} \\).
+- The internal flag `orderN.Inverse.S` is overwritten with the opposite value of `orderN.Exact.Inverse.S`, so specifying it in the input has no effect.
+- [Public] Manual Sec. 27.3 states that convergence may improve by setting `orderN.Exact.Inverse.S` and `orderN.Expand.Core` to `on` for covalent systems,
+  and both to `off` for simple metals.
 
-### 射影 Hamiltonian と埋め込み〔公開〕〔規約〕
+### Projected Hamiltonian and embedding [Public] [Convention]
 
-〔公開〕TN3 Eq. 27–28：クラスターを「コア」部分と「バッファー」部分に分け、\\( U \\) の対応する行を \\( u\_c \\)、\\( u\_b \\) とすると
+[Public] TN3 Eqs. 27–28: dividing the cluster into a "core" part and a "buffer" part, with the corresponding rows of \\( U \\) denoted \\( u\_c \\) and \\( u\_b \\),
 
 $$
 H\_K = u\_c^{\mathsf T} H\_{cc} u\_c + \left( u\_c^{\mathsf T} H\_{cb} u\_b + u\_b^{\mathsf T} H\_{bc} u\_c + u\_b^{\mathsf T} H\_{bb} u\_b \right)
 $$
 
-で、括弧の中（長距離部分）を最初の SCF 反復で計算して固定することができます。
+and the part in parentheses (the long-range part) can be computed in the first SCF iteration and kept fixed.
 
-〔規約〕
+[Convention]
 
-- ここでの「コア」は第一近接 \\( \mathcal F(I) \\)（中心原子を含む）、「バッファー」は第二近接 \\( \mathcal S(I) \\) です
-  （出発ベクトルの「コア」とは別の概念です）。
-- `orderN.Recalc.Buffer` が `on`（既定）なら括弧の中を毎反復作り直します。このとき \\( H\_K = U^{\mathsf T} H^{(I)} U \\) と厳密に同じです
-  （`tools/check_on_methods.py`）。
-- `off` なら、最初の反復で計算し、以後は固定します。ただし、残差ノルム（[密度行列と電荷ミキシング](density-mixing.md) の \\( \lVert R\rVert \\)）の
-  平方根が \\( 0.2 + 0.1\\, N\_{\mathrm{atom}} \\) を初めて下回った反復で 1 回だけ作り直します。
-- 落とした \\( z \\) 個の方向（\\( U \\) の 0 の列）は、\\( H\_K \\) の対応する対角要素を 1000 Hartree にして、占有されない固有値として処理します。
+- Here the "core" is the first neighbors \\( \mathcal F(I) \\) (including the central atom) and the "buffer" is the second neighbors \\( \mathcal S(I) \\)
+  (a different concept from the "core" of the starting vectors).
+- If `orderN.Recalc.Buffer` is `on` (default), the part in parentheses is rebuilt every iteration. Then \\( H\_K = U^{\mathsf T} H^{(I)} U \\) holds exactly
+  (`tools/check_on_methods.py`).
+- If `off`, it is computed in the first iteration and fixed thereafter. However, it is rebuilt once in the iteration where the square root of the residual norm
+  (\\( \lVert R\rVert \\) of [Density matrix and charge mixing](density-mixing.md)) first falls below \\( 0.2 + 0.1\\, N\_{\mathrm{atom}} \\).
+- The \\( z \\) dropped directions (zero columns of \\( U \\)) are handled as unoccupied eigenvalues by setting the corresponding diagonal elements of \\( H\_K \\) to 1000 Hartree.
 
-### 固有値・密度行列・化学ポテンシャル〔規約〕
+### Eigenvalues, density matrix, and chemical potential [Convention]
 
-- \\( H\_K \\) の全固有対を求め、\\( c\_\mu = U b\_\mu \\) のうちコア（\\( \mathcal F(I) \\)）の行だけを使って、DC と同じ留数・Mulliken 重みを作ります。
-- 計算量を減らすため、固有値をエネルギー窓 \\( [\mu' - \Delta, \mu' + \Delta] \\)（\\( \Delta = 10 \\) eV \\( = 0.367493245 \\) Hartree）で 3 つに分けます。
-  \\( \mu' \\) はその時点の化学ポテンシャル（前の反復の値、最初の反復では `orderN.InitChemPot`、既定値 \\( -3.0 \\) eV）です。
-  - 下端より下の固有値の状態は、占有数 1 で \\( \rho \\)、\\( E \\)、電子数に足し込みます（\\( \mu \\) を探す間も固定）。
-  - 窓の中（上端を超える最初の固有値まで）の状態は留数を保存し、Fermi 分布で重みを付けます。
-  - それより上の状態は捨てます（占有数 0）。
-- \\( \mu \\) は DC と同じ式を二分法で解きます（区間などは上の表）。
-- 最初の反復で真の \\( \mu \\) が `orderN.InitChemPot` から 10 eV 以上離れていると、その反復の占有数が大きく誤ります。2 反復目以降は窓が追従します。
+- All eigenpairs of \\( H\_K \\) are found, and only the core (\\( \mathcal F(I) \\)) rows of \\( c\_\mu = U b\_\mu \\) are used to build the same residues and Mulliken weights as in DC.
+- To reduce cost, the eigenvalues are split into three groups by the energy window \\( [\mu' - \Delta, \mu' + \Delta] \\) (\\( \Delta = 10 \\) eV \\( = 0.367493245 \\) Hartree).
+  \\( \mu' \\) is the chemical potential at that time (the value of the previous iteration; in the first iteration `orderN.InitChemPot`, default \\( -3.0 \\) eV).
+  - States with eigenvalues below the lower end are added to \\( \rho \\), \\( E \\), and the electron number with occupation 1 (fixed while searching for \\( \mu \\)).
+  - For states inside the window (up to the first eigenvalue exceeding the upper end), residues are stored and weighted with the Fermi distribution.
+  - States above that are discarded (occupation 0).
+- \\( \mu \\) is found by bisection of the same equation as DC (intervals etc. in the table above).
+- If in the first iteration the true \\( \mu \\) is 10 eV or more away from `orderN.InitChemPot`, the occupations in that iteration are badly wrong. From the second iteration onward the window follows.
 
-## 4. 局在自然軌道を使う分割統治法（DC-LNO）
+## 4. Divide-and-conquer with localized natural orbitals (DC-LNO)
 
-### LNO の定義〔公開〕
+### Definition of LNOs [Public]
 
-TN26 Eq. 17–22：原子 \\( I \\) について、密度行列と重なり行列の積の対角ブロック
+TN26 Eqs. 17–22: for atom \\( I \\), form the diagonal block of the product of the density matrix and the overlap matrix,
 
 $$
 \Lambda\_I = \sum\_{(J,\mathbf L)\in\mathcal F(I)} \rho\_{I, J}(\mathbf L)\\, S\_{J, I}(-\mathbf L)
 $$
 
-（\\( \rho\_{I,J}(\mathbf L) \\) は \\( I \\) の軌道 × \\( J \\) の軌道のブロック）を作ると、\\( g\_s\sum\_\sigma\sum\_I \mathrm{tr}\\,\Lambda\_I = N\_{\mathrm e} \\) です。
-\\( \Lambda\_I \\) は対称とは限らないので非対称の固有値問題 \\( \Lambda\_I v\_{I\gamma} = \lambda\_{I\gamma} v\_{I\gamma} \\) を解き、
-固有値 \\( \lambda \\)（軌道の占有数に当たる）が閾値以上の固有ベクトルを LNO とします。
-LNO は原子 \\( I \\) 上の PAO だけの一次結合で、占有状態の部分空間を張る局所的な低ランク近似を与えます。
-TN26 のベンチマークでは閾値 0.1 で、C・Si が 1 原子あたり 4 個、Al が 4 個（伝導帯まで再現するには 9 個）、Li が 2 個（同 5 個）です。
+(\\( \rho\_{I,J}(\mathbf L) \\) is the block of orbitals of \\( I \\) × orbitals of \\( J \\)); then \\( g\_s\sum\_\sigma\sum\_I \mathrm{tr}\\,\Lambda\_I = N\_{\mathrm e} \\).
+Since \\( \Lambda\_I \\) is not necessarily symmetric, the nonsymmetric eigenvalue problem \\( \Lambda\_I v\_{I\gamma} = \lambda\_{I\gamma} v\_{I\gamma} \\) is solved, and
+the eigenvectors whose eigenvalues \\( \lambda \\) (corresponding to orbital occupations) are at or above a threshold are the LNOs.
+An LNO is a linear combination of PAOs on atom \\( I \\) only, and gives a local low-rank approximation spanning the subspace of occupied states.
+In the TN26 benchmarks, with threshold 0.1, C and Si have 4 per atom, Al 4 (9 to reproduce up to the conduction band), and Li 2 (5 likewise).
 
-〔公開〕の注記：TN26 の本文では、PAO を使う第二近接の割合 \\( \kappa \\) の値が「310」と読める箇所がありますが、
-定義域（0〜1）と式 28 の数値例から 3/10 の意味です。
+Note on [Public]: in the TN26 text, there is a place where the value of \\( \kappa \\), the fraction of second neighbors using PAOs, reads as "310", but
+from the domain (0 to 1) and the numerical example of Eq. 28 it means 3/10.
 
-### LNO の計算の規約〔規約〕
+### Conventions for computing LNOs [Convention]
 
-- \\( \Lambda\_I \\) は、その SCF 反復の **入力の** 密度行列（前の反復で作り、ミキシングを通った \\( \rho \\)）から、毎反復作り直します。
-  共線スピン偏極ではスピンごとに別の \\( \Lambda\_I \\) と LNO を持ちます。
-  非共線では \\( \Lambda\_I \\) を \\( \rho^{\uparrow\uparrow} + \rho^{\downarrow\downarrow} \\) から作り、同じ LNO を両スピン成分に使います。
-- 固有値問題は一般の実非対称行列として解き、固有値の **実部** で降順に並べます。虚部は捨て、複素共役対に対する特別な処理はありません。
-- 各固有ベクトルは Euclid ノルムを 1 に規格化します（\\( S \\) 正規化ではありません）。
-- LNO の数 \\( n\_{\mathrm L}(I) \\) は、降順に並べた \\( \lambda \\) のうち、最初に `orderN.LNO.Occ.Cutoff`（既定値 0.1）を下回る位置までの個数です。
-  - 共線スピン偏極では、両スピンのうち多い方の数を使います（LNO の数はスピンに共通）。
-  - 非共線では閾値を 2 倍（既定で 0.2）にします。
-  - 〔公開〕マニュアル 27.2 節：`LNOs.Num` ブロック（種ごとの数）を指定すると、閾値によらず数を固定します。
-    構造最適化・MD では LNO の数が途中で変わらないよう、こちらを推奨しています。
-- 〔公開〕マニュアル 27.2 節の `scf.dclno.threading`（OpenMP による並列化の切り替え）は、既存実装（参照した版）では読み込むだけで使われていません。
+- \\( \Lambda\_I \\) is rebuilt every iteration from the **input** density matrix of that SCF iteration (\\( \rho \\) built in the previous iteration and passed through mixing).
+  In collinear spin-polarized calculations, a separate \\( \Lambda\_I \\) and separate LNOs are kept per spin.
+  In noncollinear calculations, \\( \Lambda\_I \\) is built from \\( \rho^{\uparrow\uparrow} + \rho^{\downarrow\downarrow} \\), and the same LNOs are used for both spin components.
+- The eigenvalue problem is solved as a general real nonsymmetric matrix, and eigenvalues are sorted in descending order of their **real part**. Imaginary parts are discarded; there is no special treatment of complex-conjugate pairs.
+- Each eigenvector is normalized to unit Euclidean norm (not \\( S \\)-normalized).
+- The number of LNOs \\( n\_{\mathrm L}(I) \\) is the count of \\( \lambda \\), sorted in descending order, up to the position where it first falls below `orderN.LNO.Occ.Cutoff` (default 0.1).
+  - In collinear spin-polarized calculations, the larger of the counts of the two spins is used (the number of LNOs is common to both spins).
+  - In noncollinear calculations the threshold is doubled (0.2 by default).
+  - [Public] Manual Sec. 27.2: specifying the `LNOs.Num` block (number per species) fixes the number regardless of the threshold.
+    This is recommended for geometry optimization and MD so that the number of LNOs does not change midway.
+- [Public] `scf.dclno.threading` of manual Sec. 27.2 (switch for OpenMP parallelization) is only read and not used in the existing implementation (the version consulted).
 
-### PAO 領域と LNO 領域〔公開〕〔規約〕
+### PAO region and LNO region [Public] [Convention]
 
-〔公開〕TN26 Eq. 26 とマニュアル 27.2 節：クラスターの内側（第一近接と、第二近接のうち中心に近い一部）は PAO のまま、
-残りの第二近接は LNO で表します。`orderN.LNO.Buffer`（既定値 0.2）は、第二近接のうち PAO を使う原子の割合の目安で、
-0 なら（ほぼ）すべてが LNO、1 ならすべて PAO（DC と同じ）です。マニュアルは 0.1〜0.2 を推奨しています。
+[Public] TN26 Eq. 26 and manual Sec. 27.2: the inner part of the cluster (the first neighbors and some of the second neighbors close to the center) is kept in PAOs,
+and the remaining second neighbors are represented by LNOs. `orderN.LNO.Buffer` (default 0.2) is a guide to the fraction of second-neighbor atoms using PAOs:
+0 means (almost) all LNO, and 1 means all PAO (the same as DC). The manual recommends 0.1–0.2.
 
-〔規約〕PAO を使う第二近接の数 \\( n\_P \\) は次のように決まります。\\( r\_0 \\) を第一近接の最大距離、\\( b \\) を `orderN.LNO.Buffer`、
-\\( \lvert\mathcal S\rvert \\) を第二近接の数とします。
+[Convention] The number \\( n\_P \\) of second neighbors using PAOs is determined as follows. Let \\( r\_0 \\) be the maximum distance of the first neighbors, \\( b \\) be `orderN.LNO.Buffer`,
+and \\( \lvert\mathcal S\rvert \\) the number of second neighbors.
 
 $$
 r(\phi) = r\_0 + \phi\\,(R\_{\mathrm{hop}} - r\_0),\qquad n(\phi) = \\#\\{ s\in\mathcal S(I) : d\_{Is} \le r(\phi) \\}
 $$
 
-として、\\( \phi = 0.1 \times 1.05^{k} \\)（\\( k = 0, 1, \dots, 399 \\)）の順に調べ、初めて \\( n(\phi) > \lfloor b \lvert\mathcal S\rvert \rfloor \\) となった \\( n(\phi) \\) を \\( n\_P \\) とします
-（400 回で満たされなければ最後の \\( n(\phi) \\)）。距離の昇順で先頭の \\( n\_P \\) 個の第二近接が PAO、残りが LNO になります。
+Checking \\( \phi = 0.1 \times 1.05^{k} \\) (\\( k = 0, 1, \dots, 399 \\)) in order, the first \\( n(\phi) \\) with \\( n(\phi) > \lfloor b \lvert\mathcal S\rvert \rfloor \\) is taken as \\( n\_P \\)
+(if not satisfied in 400 steps, the last \\( n(\phi) \\)). The first \\( n\_P \\) second neighbors in ascending order of distance use PAOs, and the rest use LNOs.
 
-- \\( \phi \\) を 5% 刻みで増やすので、\\( n\_P \\) は \\( \lfloor b \lvert\mathcal S\rvert \rfloor + 1 \\) 以上の、距離の殻の境目で決まる数です。
-- \\( b = 0 \\) でも、少なくとも 1 個（\\( r(0.1) \\) 以内に原子があればそのすべて）の第二近接が PAO になります。
-- \\( b = 1 \\) では条件を満たせず、\\( \phi \\) が十分大きくなってすべてが PAO になります。
-- この分類は原子配置が決まったとき（MD の各ステップ）に行い、SCF の途中では変えません。
+- Since \\( \phi \\) is increased in 5% steps, \\( n\_P \\) is a number at least \\( \lfloor b \lvert\mathcal S\rvert \rfloor + 1 \\) determined by the boundaries of distance shells.
+- Even with \\( b = 0 \\), at least one second neighbor (all of them within \\( r(0.1) \\), if any) uses PAOs.
+- With \\( b = 1 \\) the condition cannot be satisfied, and \\( \phi \\) becomes large enough that all use PAOs.
+- This classification is made when the atomic configuration is determined (each MD step) and is not changed during the SCF.
 
-### 縮約した局所問題〔公開〕〔規約〕
+### Contracted local problem [Public] [Convention]
 
-〔公開〕TN26 Eq. 26：クラスターの行列を、PAO–PAO、PAO–LNO、LNO–PAO、LNO–LNO のブロックに分けて作ります。
+[Public] TN26 Eq. 26: the cluster matrices are built divided into PAO–PAO, PAO–LNO, LNO–PAO, and LNO–LNO blocks.
 
-〔規約〕サイトごとの変換行列 \\( T\_s \\) を、PAO のサイトでは単位行列、LNO のサイト \\( s = (J, \mathbf L) \\) では
-原子 \\( J \\) の LNO の係数を並べた \\( M\_J \times n\_{\mathrm L}(J) \\) 行列とし、\\( T = \bigoplus\_s T\_s \\) として
+[Convention] With per-site transformation matrices \\( T\_s \\), the identity for PAO sites and, for an LNO site \\( s = (J, \mathbf L) \\),
+the \\( M\_J \times n\_{\mathrm L}(J) \\) matrix of the LNO coefficients of atom \\( J \\), and \\( T = \bigoplus\_s T\_s \\),
 
 $$
 \tilde H^{(I)} = T^{\mathsf T} H^{(I)} T,\qquad \tilde S^{(I)} = T^{\mathsf T} S^{(I)} T
 $$
 
-を解きます（スピン偏極ではスピンごとの LNO を使うので、\\( \tilde S \\) もスピンごとに異なります）。
+is solved (in spin-polarized calculations, per-spin LNOs are used, so \\( \tilde S \\) also differs per spin).
 
-- 直交化は [一般化固有値問題](generalized-eigen.md) の規則 D（\\( \tilde S \\) の固有値を絶対値に置き換え、閾値なし）です。
-  ほぼ一次従属な LNO があると \\( \lvert\lambda\rvert^{-1/2} \\) が大きくなります。
-- 最初の 2 反復は全固有対を、以後は前の反復の窓の上端の添字に 100 を足した数（\\( \tilde n\_I \\) が上限）だけを求めます。
-- エネルギー窓は Krylov 法と同じ \\( \pm 10 \\) eV で、下端より下は占有数 1、窓の中は Fermi 分布です。
-  ただし上端の添字には 30 を足し、求めた固有対の数を上限とします。
-- 中心原子と第一近接は常に PAO 領域にあるので、留数 \\( r^{(I)}\_{\mu;\alpha,s\beta} \\) の添字はすべて PAO で、
-  \\( \rho \\)、\\( E \\)、Mulliken 重みの式は DC と同じです。
-- \\( \mu \\) の決め方は DC と同じ式で、区間などは上の表のとおりです。
-- 〔設計〕（検算）すべての LNO（\\( n\_{\mathrm L} = M\_J \\)）を使えば \\( T \\) は正則で、結果は DC と一致します（`tools/check_on_methods.py`）。
+- Orthogonalization uses rule D of [Generalized eigenvalue problem](generalized-eigen.md) (eigenvalues of \\( \tilde S \\) replaced by their absolute values, no threshold).
+  Nearly linearly dependent LNOs make \\( \lvert\lambda\rvert^{-1/2} \\) large.
+- In the first two iterations all eigenpairs are computed; thereafter only as many as the index of the upper end of the previous iteration's window plus 100 (capped at \\( \tilde n\_I \\)).
+- The energy window is \\( \pm 10 \\) eV as in the Krylov method: occupation 1 below the lower end, Fermi distribution inside the window.
+  However, 30 is added to the index of the upper end, capped at the number of computed eigenpairs.
+- The central atom and the first neighbors are always in the PAO region, so all indices of the residues \\( r^{(I)}\_{\mu;\alpha,s\beta} \\) are PAOs, and
+  the expressions for \\( \rho \\), \\( E \\), and the Mulliken weights are the same as in DC.
+- \\( \mu \\) is determined by the same equation as DC, with intervals etc. as in the table above.
+- [Design] (checked) If all LNOs are used (\\( n\_{\mathrm L} = M\_J \\)), \\( T \\) is nonsingular and the result agrees with DC (`tools/check_on_methods.py`).
 
-〔公開〕TN26 Eq. 28 は DC に対する計算時間の比を \\( [M\_P(N\_F + \kappa N\_S) + M\_L(1-\kappa)N\_S]^3 / [M\_P^3 (N\_F+N\_S)^3] \\) と見積もっています
-（\\( M\_P \\)、\\( M\_L \\) は 1 原子あたりの PAO・LNO の数、\\( N\_F \\)、\\( N\_S \\) は第一・第二近接の数）。
+[Public] TN26 Eq. 28 estimates the ratio of computation time to DC as \\( [M\_P(N\_F + \kappa N\_S) + M\_L(1-\kappa)N\_S]^3 / [M\_P^3 (N\_F+N\_S)^3] \\)
+(\\( M\_P \\), \\( M\_L \\) are the numbers of PAOs and LNOs per atom, and \\( N\_F \\), \\( N\_S \\) the numbers of first and second neighbors).
 
-## 5. その他の解法
+## 5. Other solvers
 
-### 低次スケーリング法（`Cluster2`）〔公開〕〔規約〕
+### Low-order scaling method (`Cluster2`) [Public] [Convention]
 
-〔公開〕TN16 と PRB 82, 075131 (2010)、マニュアル 48 章：O(N) 法のような打ち切りをせず、全系の \\( G(Z) = (ZS - H)^{-1} \\) のうち
-\\( H \\)、\\( S \\) が 0 でない要素（密度行列に必要な要素）だけを求める、数値的に厳密な方法です。
+[Public] TN16 and PRB 82, 075131 (2010), manual Chapter 48: a numerically exact method that, without truncation as in O(N) methods, computes only the elements of the whole-system \\( G(Z) = (ZS - H)^{-1} \\)
+where \\( H \\) and \\( S \\) are nonzero (the elements needed for the density matrix).
 
-- Fermi 分布を連分数展開から得た極の和で表し、\\( \rho \\) を有限個の複素エネルギー \\( \alpha\_p = \mu + i z\_p k\_{\mathrm B} T \\) での \\( G(\alpha\_p) \\) の和と、
-  大きな虚数エネルギーで評価したモーメント項で表します（TN16 Eq. 7–8）。エネルギー重み付き密度行列も同様です（Eq. 10–17）。
-- \\( G(\alpha\_p) \\) の必要な要素は、基底を空間的に再帰二分割（入れ子分割）して並べ、ブロック \\( LDL^{\mathsf T} \\) 分解と
-  Schur 補行列の漸化式で求めます（Eq. 18–39）。計算量は 1 次元 \\( O(N(\log N)^2) \\)、2 次元 \\( O(N^2) \\)、3 次元 \\( O(N^{7/3}) \\) です。
-- 化学ポテンシャルは、二分法・線形補間・Muller 法と、前の反復からの外挿を組み合わせて決めます（Sec. 2.3.3）。
-- 必要な極の数は系の大きさに依らず、スペクトル半径と温度で決まります。マニュアルは 300 K 以上で約 100 個で十分としています。
-- 共線スピンだけ、孤立系または周期系の Γ 点だけ、状態密度・波動関数の出力は未対応です（マニュアル 48 章）。
+- The Fermi distribution is represented as a sum over poles obtained from a continued-fraction expansion, and \\( \rho \\) is expressed as a sum of \\( G(\alpha\_p) \\) at finitely many complex energies \\( \alpha\_p = \mu + i z\_p k\_{\mathrm B} T \\) plus
+  a moment term evaluated at a large imaginary energy (TN16 Eqs. 7–8). The energy-weighted density matrix is analogous (Eqs. 10–17).
+- The needed elements of \\( G(\alpha\_p) \\) are obtained by ordering the basis by recursive spatial bisection (nested dissection), block \\( LDL^{\mathsf T} \\) factorization, and
+  recurrences for Schur complements (Eqs. 18–39). The cost is \\( O(N(\log N)^2) \\) in 1D, \\( O(N^2) \\) in 2D, and \\( O(N^{7/3}) \\) in 3D.
+- The chemical potential is determined by combining bisection, linear interpolation, Muller's method, and extrapolation from previous iterations (Sec. 2.3.3).
+- The number of poles needed does not depend on system size; it is determined by the spectral radius and the temperature. The manual says about 100 poles suffice at 300 K or above.
+- Only collinear spin, only isolated systems or the Γ point of periodic systems, and no output of densities of states or wave functions are supported (manual Chapter 48).
 
-〔規約〕`scf.Npoles.ON2`（既定値 100）で極の数を指定します。エネルギー重み付き密度行列は、SCF の収束後に力の計算のための別の段階で作ります。
-非共線では何も計算せずに戻ります。
+[Convention] The number of poles is specified by `scf.Npoles.ON2` (default 100). The energy-weighted density matrix is built after SCF convergence in a separate stage for the force calculation.
+In the noncollinear case it returns without computing anything.
 
-### その他の値〔規約〕
+### Other values [Convention]
 
-- `EGAC`：`scf.Npoles.EGAC`（既定値 80）、`scf.DIIS.History.EGAC`（2）、`scf.AC.flag.EGAC`（off）、`scf.GF.EGAC`（off）を読みますが、
-  マニュアルに記載がなく、この章では扱いません（〔未確定〕）。
-- `Cluster-LNO`：LNO で基底を縮約した全系の対角化です。`LNOs.Num` が必須で、正則化は規則 A です。
-- 旧い O(N) 法（再帰法など）のキーワード `orderN.RecursiveLevels`（10）、`orderN.TerminatorType`、`orderN.InverseSolver`、
-  `orderN.InvRecursiveLevels`（30）、`orderN.ChargeDeviation`（\\( 10^{-7} \\)）、`orderN.AvNumTerminater`（1）、`orderN.EC.Sub.Dim`（400）、
-  `orderN.NumHoppings`（2）は読み込まれますが、上の解法には影響しません。`orderN.NumPoles`（10）は別の目的で使われます（〔未確定〕）。
+- `EGAC`: reads `scf.Npoles.EGAC` (default 80), `scf.DIIS.History.EGAC` (2), `scf.AC.flag.EGAC` (off), and `scf.GF.EGAC` (off), but
+  is not described in the manual and is not treated in this chapter ([Open]).
+- `Cluster-LNO`: full diagonalization with the basis contracted by LNOs. `LNOs.Num` is required, and regularization is rule A.
+- The keywords of legacy O(N) methods (recursion method etc.) `orderN.RecursiveLevels` (10), `orderN.TerminatorType`, `orderN.InverseSolver`,
+  `orderN.InvRecursiveLevels` (30), `orderN.ChargeDeviation` (\\( 10^{-7} \\)), `orderN.AvNumTerminater` (1), `orderN.EC.Sub.Dim` (400),
+  `orderN.NumHoppings` (2) are read but do not affect the solvers above. `orderN.NumPoles` (10) is used for another purpose ([Open]).
 
-## 6. エネルギーと力〔公開〕〔規約〕
+## 6. Energy and forces [Public] [Convention]
 
-〔公開〕TN3 4.3 節と TN26：力は、局所問題の固有状態を厳密な Kohn–Sham 状態とみなして、Cluster・Band と同じ式
-（Hellmann–Feynman 項と Pulay 補正。[全エネルギーと力](energy-force.md)）に \\( \rho \\) と \\( E \\) を入れて計算します。
-クラスターが有限である限り、この力は全エネルギーの厳密な微分ではありません（変分的でない）。
-TN3 は、構造最適化を \\( 10^{-4} \\) Hartree/bohr 程度で止めるなら誤差は許容範囲としています。
+[Public] TN3 Sec. 4.3 and TN26: forces are computed by regarding the eigenstates of the local problems as exact Kohn–Sham states and inserting \\( \rho \\) and \\( E \\) into the same expressions as Cluster and Band
+(Hellmann–Feynman terms and Pulay corrections; [Total energy and forces](energy-force.md)).
+As long as the cluster is finite, these forces are not the exact derivatives of the total energy (not variational).
+TN3 considers the error acceptable if geometry optimization is stopped at about \\( 10^{-4} \\) Hartree/bohr.
 
-〔規約〕
+[Convention]
 
-- 全エネルギーの各項は Cluster・Band と同じ式で、\\( \rho \\)、\\( E \\) を O(N) 法の結果に置き換えるだけです。
-- \\( \rho \\) が非対称なので、原子対（と三中心の積分の対）についての和は、対称性で半分にまとめず、**すべての順序対** で行います。
-  Cluster・Band では \\( (J, K) \\) と \\( (K, J) \\) の項をまとめて係数 2 を掛けていますが、DC・Krylov・DC-LNO では各順序対を係数 1 で足します
-  （非スピン偏極の 2 倍はそのまま）。
-- 応力（格子ベクトルの微分）を O(N) 法で使えるかは〔未確定〕です。
+- Each term of the total energy uses the same expression as Cluster and Band, simply replacing \\( \rho \\) and \\( E \\) by the results of the O(N) method.
+- Since \\( \rho \\) is asymmetric, sums over atom pairs (and over pairs of three-center integrals) are not halved by symmetry but taken over **all ordered pairs**.
+  In Cluster and Band the \\( (J, K) \\) and \\( (K, J) \\) terms are combined with a factor of 2, but in DC, Krylov, and DC-LNO each ordered pair is added with factor 1
+  (the factor 2 for non-spin-polarized remains).
+- Whether stress (derivatives with respect to lattice vectors) can be used with O(N) methods is [Open].
 
-## パラメータと既定値〔公開〕〔規約〕
+## Parameters and defaults [Public] [Convention]
 
-| キーワード | 既定値 | 対象 | 意味 |
+| Keyword | Default | Applies to | Meaning |
 |---|---|---|---|
-| `orderN.HoppingRanges` | 7.0（Å） | DC・Krylov・DC-LNO | 切断クラスターの半径 \\( R\_{\mathrm{hop}} \\) |
-| `orderN.FNAN+SNAN` | なし | 同上 | 原子ごとのサイト数の指定（3 整数の行） |
-| `orderN.KrylovH.order` | 400 | Krylov | Hamiltonian の Krylov 次元の目安 \\( K\_H \\) |
-| `orderN.KrylovS.order` | \\( 4K\_H \\) | Krylov | \\( S \\) の Krylov 次元（`orderN.Exact.Inverse.S off` のとき） |
-| `orderN.Exact.Inverse.S` | on | Krylov | \\( (S^{(I)})^{-1} \\) を厳密に作るか |
-| `orderN.Recalc.Buffer` | on | Krylov | 埋め込み（バッファー）部分を毎反復作り直すか |
-| `orderN.Expand.Core` | on | Krylov | 出発ベクトルに近接原子を含めるか |
-| `orderN.InitChemPot` | \\( -3.0 \\)（eV） | Krylov | 最初の反復のエネルギー窓の中心 |
-| `orderN.LNO.Occ.Cutoff` | 0.1 | DC-LNO | LNO を採る占有数の閾値（非共線は 2 倍） |
-| `orderN.LNO.Buffer` | 0.2 | DC-LNO | PAO を使う第二近接の割合の目安 |
-| `LNOs.Num` | なし | DC-LNO（`Cluster-LNO` では必須） | 種ごとの LNO の数 |
-| `scf.Npoles.ON2` | 100 | `Cluster2` | 極の数 |
-| `scf.ElectronicTemperature` | 300（K） | すべて | Fermi 分布の温度 |
+| `orderN.HoppingRanges` | 7.0 (Å) | DC, Krylov, DC-LNO | Radius \\( R\_{\mathrm{hop}} \\) of the truncated cluster |
+| `orderN.FNAN+SNAN` | None | Same | Per-atom specification of the number of sites (lines of 3 integers) |
+| `orderN.KrylovH.order` | 400 | Krylov | Target Krylov dimension \\( K\_H \\) for the Hamiltonian |
+| `orderN.KrylovS.order` | \\( 4K\_H \\) | Krylov | Krylov dimension for \\( S \\) (with `orderN.Exact.Inverse.S off`) |
+| `orderN.Exact.Inverse.S` | on | Krylov | Whether to build \\( (S^{(I)})^{-1} \\) exactly |
+| `orderN.Recalc.Buffer` | on | Krylov | Whether to rebuild the embedding (buffer) part every iteration |
+| `orderN.Expand.Core` | on | Krylov | Whether to include neighboring atoms in the starting vectors |
+| `orderN.InitChemPot` | \\( -3.0 \\) (eV) | Krylov | Center of the energy window in the first iteration |
+| `orderN.LNO.Occ.Cutoff` | 0.1 | DC-LNO | Occupation threshold for adopting LNOs (doubled for noncollinear) |
+| `orderN.LNO.Buffer` | 0.2 | DC-LNO | Guide to the fraction of second neighbors using PAOs |
+| `LNOs.Num` | None | DC-LNO (required for `Cluster-LNO`) | Number of LNOs per species |
+| `scf.Npoles.ON2` | 100 | `Cluster2` | Number of poles |
+| `scf.ElectronicTemperature` | 300 (K) | All | Temperature of the Fermi distribution |
 
-- 〔公開〕マニュアルは `orderN.HoppingRanges` の既定値を書いていません。分子系で 6.0〜7.0 Å（DC）、DC-LNO で 200〜300 原子が入る半径を勧めています。
-  配布されている入力例のコメントには「default=5.0」とあるものがありますが、既存実装の既定値は 7.0 Å です〔規約〕。
-- 〔公開〕マニュアル 27.1 節：DC の全エネルギーの誤差は 1 原子あたりミリ Hartree の程度で、ギャップのある系では
-  クラスターの大きさに対してほぼ指数関数的に減り、金属では遅く収束します。TN26 の付録は、金属で誤差が振動しうること、
-  電子温度を上げると抑えられることを 1 次元モデルで示しています。
+- [Public] The manual does not give the default of `orderN.HoppingRanges`. It recommends 6.0–7.0 Å for molecular systems (DC), and for DC-LNO a radius containing 200–300 atoms.
+  Comments in some distributed input examples say "default=5.0", but the default of the existing implementation is 7.0 Å [Convention].
+- [Public] Manual Sec. 27.1: the error of the DC total energy is on the order of millihartree per atom; for gapped systems it decreases almost exponentially
+  with cluster size, while for metals it converges slowly. The appendix of TN26 shows with a 1D model that the error can oscillate for metals and that
+  raising the electronic temperature suppresses it.
 
-## 端の場合〔規約〕
+## Edge cases [Convention]
 
-- **小さい単位胞**：同じ原子の複数の像が別のサイトとして入ります。中心原子の像も含みます。結果は周期像を区別した実空間の問題として正しく扱われます。
-- **孤立原子・第一近接がない原子**：Krylov の \\( r\_{\min} \\) が定まらないので、コアは中心原子だけになります。
-- **Krylov 次元がクラスターの基底数以上**：Krylov 部分空間を作らず、全軌道を使います（DC と同等）。
-- **\\( S^{(I)} \\) がほぼ特異**：DC と Krylov は \\( 10^{-9} \\) で方向を落とし、落とした方向は 1000 Hartree の非占有状態になります。
-  Krylov の厳密な逆（Cholesky）は正則化せず、正定値でなければエラーを表示して続行します。DC-LNO は規則 D なので発散しうります。
-- **\\( \Lambda\_I \\) の固有値が複素数**：虚部を捨てます。固有ベクトルの扱いも特別なことはしません（〔未確定〕：結果への影響）。
-- **最初の反復**：Krylov はエネルギー窓の中心に `orderN.InitChemPot` を使います。DC-LNO は最初の反復でも入力の密度行列から LNO を作ります
-  （restart なしの最初の反復でその密度行列が何であるかは〔未確定〕。配布されている DC-LNO の入力例は `LNOs.Num` を指定しています）。
-- **非対応の組み合わせ**：Krylov の非共線、共線でのスピン軌道相互作用（DC・Krylov・`Cluster2`）は停止します。`Cluster2` の非共線は何もしません。
+- **Small unit cell**: multiple images of the same atom enter as separate sites, including images of the central atom. The result is handled correctly as a real-space problem distinguishing periodic images.
+- **Isolated atom / atom without first neighbors**: \\( r\_{\min} \\) of Krylov is undefined, so the core is only the central atom.
+- **Krylov dimension at least the number of basis functions of the cluster**: no Krylov subspace is built and all orbitals are used (equivalent to DC).
+- **Nearly singular \\( S^{(I)} \\)**: DC and Krylov drop directions at \\( 10^{-9} \\), and the dropped directions become unoccupied states at 1000 Hartree.
+  The exact inverse (Cholesky) of Krylov is not regularized; if not positive definite, an error is printed and the calculation continues. DC-LNO uses rule D and so can diverge.
+- **Complex eigenvalues of \\( \Lambda\_I \\)**: the imaginary parts are discarded. Nothing special is done for the eigenvectors either ([Open]: effect on the result).
+- **First iteration**: Krylov uses `orderN.InitChemPot` as the center of the energy window. DC-LNO builds LNOs from the input density matrix even in the first iteration
+  (what that density matrix is in the first iteration without restart is [Open]. The distributed DC-LNO input examples specify `LNOs.Num`).
+- **Unsupported combinations**: Krylov with noncollinear, and spin-orbit coupling with collinear spin (DC, Krylov, `Cluster2`) stop. `Cluster2` with noncollinear does nothing.
 
-## 実装への要求〔設計〕
+## Requirements for implementations [Design]
 
-- **クラスターの構築** を独立したモジュールにします。入力は原子位置・格子・カットオフ半径・\\( R\_{\mathrm{hop}} \\)、出力はサイト（原子番号と格子ベクトルの整数座標）の列と、
-  第一近接・第二近接の区別、各サイトの距離です。並びは「中心、第一近接、第二近接（距離の昇順、同距離は原子番号・格子ベクトルの辞書順）」と定めます。
-  `orderN.FNAN+SNAN` 相当の指定は、すべての MD ステップで適用するのを既定とし、既存実装との照合用に「最初のステップだけ」も選べるようにします。
-- **局所行列の取り出し** は [疎ブロック形式](../design/sparse-block-format.md) から主小行列を組み立てる関数とし、構造（サイトの対と H(R) のブロックの対応）は原子配置ごとに一度だけ作ります。
-- **局所ソルバー** を共通のインターフェース（局所問題 → 固有値と、中心原子の行・第一近接の列の留数）で切り替えます。
-  - `Dense`（DC）：正則化は [一般化固有値問題](generalized-eigen.md) の方式の列挙型で指定し、既定は `Drop { threshold: 1e-9 }`。
-  - `Krylov`：コアの選び方、ブロック数、逆 \\( S \\) の方式（厳密／Krylov 近似）、埋め込みの更新方針を明示的な設定にします。
-    基底 \\( U \\) を作る時期（最初の反復だけ／毎反復）も設定にし、既定は既存実装と同じ「最初の反復だけ」とします。
-  - `Lno`：LNO の数の決め方（閾値／種ごとの固定数）、PAO 領域の決め方（上の規則）、正則化（既定は `Floor { threshold: 1e-10 }`、照合用に `Abs`）。
-- **化学ポテンシャル** は全原子の \\( (\varepsilon, \kappa) \\) の組（と窓の下の固定占有の電子数）を受け取る関数にし、MPI では原子ごとの部分和だけを集めます。
-  二分法の区間と停止条件は設定で与え、既定は \\( [-30, 30] \\) Hartree、\\( 10^{-12} \\) とします。
-- **エネルギー窓** は省略可能な最適化とし、既定では窓を使わずすべての状態に Fermi 分布を掛けます。既存実装との照合では窓（\\( \pm 10 \\) eV）を有効にします。
-- **密度行列の非対称性** を型で表します。O(N) 法の出力は「対称とは限らない」ブロックの集合で、\\( (I, J, \mathbf L) \\) と \\( (J, I, -\mathbf L) \\) を独立に持ちます。
-  力・エネルギーのモジュールは、この場合に順序対の和をとる経路を持ちます。対称化（\\( (\rho + \rho^{\mathsf T})/2 \\)）は省略可能な選択とし、既定はしません。
-- **報告**：原子ごとにクラスターのサイト数・基底数、Krylov 次元と落とした方向の数、LNO の数と最小採用占有数、\\( S \\) の最小固有値を記録します。
+- Make **cluster construction** an independent module. Inputs are atomic positions, lattice, cutoff radii, and \\( R\_{\mathrm{hop}} \\); outputs are the sequence of sites (atom index and integer lattice-vector coordinates),
+  the distinction between first and second neighbors, and the distance of each site. The order is defined as "center, first neighbors, second neighbors (ascending distance; ties broken lexicographically by atom index and lattice vector)".
+  The default for specifications equivalent to `orderN.FNAN+SNAN` is to apply them at every MD step, with "first step only" selectable for comparison with the existing implementation.
+- **Extraction of local matrices** is a function assembling principal submatrices from the [Sparse block format](../design/sparse-block-format.md); the structure (correspondence between site pairs and blocks of H(R)) is built only once per atomic configuration.
+- Switch **local solvers** through a common interface (local problem → eigenvalues and residues for the rows of the central atom and the columns of the first neighbors).
+  - `Dense` (DC): regularization specified by the enumeration of schemes of [Generalized eigenvalue problem](generalized-eigen.md), default `Drop { threshold: 1e-9 }`.
+  - `Krylov`: make the core selection, number of blocks, inverse-\\( S \\) scheme (exact / Krylov approximation), and embedding update policy explicit settings.
+    The timing of building the basis \\( U \\) (first iteration only / every iteration) is also a setting, defaulting to "first iteration only" as in the existing implementation.
+  - `Lno`: how to determine the number of LNOs (threshold / fixed number per species), how to determine the PAO region (rule above), and regularization (default `Floor { threshold: 1e-10 }`, `Abs` for comparison).
+- The **chemical potential** is a function taking the pairs \\( (\varepsilon, \kappa) \\) of all atoms (and the electron number of fixed occupations below the window); with MPI only per-atom partial sums are gathered.
+  The bisection interval and stopping criterion are given by settings, defaulting to \\( [-30, 30] \\) Hartree and \\( 10^{-12} \\).
+- The **energy window** is an optional optimization; by default no window is used and the Fermi distribution is applied to all states. For comparison with the existing implementation, the window (\\( \pm 10 \\) eV) is enabled.
+- Represent the **asymmetry of the density matrix** by types. The output of O(N) methods is a set of blocks "not necessarily symmetric", holding \\( (I, J, \mathbf L) \\) and \\( (J, I, -\mathbf L) \\) independently.
+  The force and energy modules have a path that sums over ordered pairs in this case. Symmetrization (\\( (\rho + \rho^{\mathsf T})/2 \\)) is an optional choice, not done by default.
+- **Reporting**: record per atom the number of cluster sites and basis functions, the Krylov dimension and the number of dropped directions, the number of LNOs and the minimum adopted occupation, and the minimum eigenvalue of \\( S \\).
 
-## テスト
+## Tests
 
-### 解析的な検算と不変量〔設計〕
+### Analytic checks and invariants [Design]
 
-`tools/check_on_methods.py`（1 次元の環、1 原子あたり 2 軌道、非直交、第二近接まで）で確認したもの。
+Confirmed with `tools/check_on_methods.py` (1D ring, 2 orbitals per atom, non-orthogonal, up to second neighbors).
 
-| 内容 | 許容誤差 |
+| Content | Tolerance |
 |---|---|
-| クラスター = 全系のとき、DC の \\( \rho \\)、\\( E \\) が全系の対角化と一致 | \\( 10^{-10} \\) |
-| 共通の \\( \mu \\) で \\( g\_s\sum\_I\sum\_{\mathcal F(I)}\rho S = N\_{\mathrm e} \\) | \\( 10^{-9} \\)（電子数） |
-| ギャップのある系で、DC の \\( \rho \\) の誤差が \\( R\_{\mathrm{hop}} \\) に対して指数関数的に減る（\\( R = 3 \to 11 \\) サイトで \\( 10^{-6} \\) 倍以下） | — |
-| 有限のクラスターで \\( \rho\_{IJ} \ne \rho\_{JI}^{\mathsf T} \\)（非対称性が実際に生じる） | — |
-| Krylov 基底の \\( S \\) 正規直交性 \\( \lVert U^{\mathsf T} S U - 1\rVert\_{\max} \\) | \\( 10^{-11} \\) |
-| コア・バッファーに分けた \\( H\_K \\) の和が \\( U^{\mathsf T} H U \\) に一致 | \\( 10^{-12} \\) |
-| モーメント \\( W\_0^{\mathsf T} S A^p W\_0 \\) を \\( p \le 2q+1 \\) で再現、\\( p = 2q+2 \\) で再現しない | \\( 10^{-10} \\)（相対） |
-| Krylov 次元 \\( \ge n\_I \\) で固有値が DC のクラスターと一致 | \\( 10^{-9} \\) |
-| Krylov 近似の \\( S^{-1} \\) が全次元で厳密な \\( S^{-1} \\) に一致（出発ブロック上） | \\( 10^{-9} \\) |
+| When cluster = whole system, \\( \rho \\) and \\( E \\) of DC agree with full diagonalization | \\( 10^{-10} \\) |
+| \\( g\_s\sum\_I\sum\_{\mathcal F(I)}\rho S = N\_{\mathrm e} \\) with common \\( \mu \\) | \\( 10^{-9} \\) (electron number) |
+| For a gapped system, the error of DC \\( \rho \\) decreases exponentially with \\( R\_{\mathrm{hop}} \\) (by a factor \\( 10^{-6} \\) or less for \\( R = 3 \to 11 \\) sites) | — |
+| \\( \rho\_{IJ} \ne \rho\_{JI}^{\mathsf T} \\) for a finite cluster (the asymmetry actually occurs) | — |
+| \\( S \\)-orthonormality of the Krylov basis \\( \lVert U^{\mathsf T} S U - 1\rVert\_{\max} \\) | \\( 10^{-11} \\) |
+| The sum of \\( H\_K \\) split into core and buffer agrees with \\( U^{\mathsf T} H U \\) | \\( 10^{-12} \\) |
+| Moments \\( W\_0^{\mathsf T} S A^p W\_0 \\) reproduced for \\( p \le 2q+1 \\), not for \\( p = 2q+2 \\) | \\( 10^{-10} \\) (relative) |
+| With Krylov dimension \\( \ge n\_I \\), eigenvalues agree with the DC cluster | \\( 10^{-9} \\) |
+| Krylov-approximate \\( S^{-1} \\) agrees with exact \\( S^{-1} \\) at full dimension (on the starting block) | \\( 10^{-9} \\) |
 | \\( g\_s\sum\_I \mathrm{tr}\\,\Lambda\_I = N\_{\mathrm e} \\) | \\( 10^{-9} \\) |
-| すべての LNO を使った DC-LNO が DC と一致 | \\( 10^{-10} \\) |
-| PAO 領域の規則：\\( b = 1 \\) で全第二近接が PAO、\\( b = 0 \\) でも 1 個以上が PAO | 厳密 |
+| DC-LNO with all LNOs agrees with DC | \\( 10^{-10} \\) |
+| PAO region rule: all second neighbors are PAO with \\( b = 1 \\); at least one is PAO even with \\( b = 0 \\) | Exact |
 
-追加で実装側に置く不変量：
+Additional invariants to place on the implementation side:
 
-- \\( \mathrm{tr} \\) の和則 \\( g\_s\sum \rho H \\) と \\( U\_{\mathrm{ele}} \\) の差が、\\( R\_{\mathrm{hop}} \to \infty \\) で 0 に近づく。
-- 共線スピン偏極で両スピンの \\( H \\) が等しいとき、非スピン偏極の結果と一致する（\\( 10^{-10} \\)）。
-- 非共線 DC でスピン非対角ブロックが 0 のとき、共線 DC の結果と一致する（\\( 10^{-10} \\)）。
-- 原子の番号の付け替え（置換）に対して、原子ごとの \\( \rho \\) のブロックが同じ置換で移る（同距離のサイトの並びを定めたうえで、丸め誤差）。
+- The difference between the \\( \mathrm{tr} \\) sum rule \\( g\_s\sum \rho H \\) and \\( U\_{\mathrm{ele}} \\) approaches 0 as \\( R\_{\mathrm{hop}} \to \infty \\).
+- In collinear spin-polarized calculations with equal \\( H \\) for both spins, the result agrees with the non-spin-polarized result (\\( 10^{-10} \\)).
+- In noncollinear DC with zero spin-off-diagonal blocks, the result agrees with collinear DC (\\( 10^{-10} \\)).
+- Under relabeling (permutation) of atoms, the per-atom blocks of \\( \rho \\) move by the same permutation (with the order of equidistant sites defined; rounding error).
 
-### 既存実装との照合〔設計〕
+### Comparison with the existing implementation [Design]
 
-既存実装で作る fixture（入力と、全エネルギー・化学ポテンシャル・原子ごとの Mulliken 電荷・力）。
+Fixtures built with the existing implementation (input, and total energy, chemical potential, per-atom Mulliken charges, forces).
 
-| 系 | 解法 | 比較 | 許容誤差の目安 |
+| System | Solver | Comparison | Tolerance (guide) |
 |---|---|---|---|
-| マニュアル 27.1 節の `DIA8_DC.dat`（ダイヤモンド 8 原子、\\( R\_{\mathrm{hop}} = 6.0 \\) Å） | DC | `Utot`、`Chemical potential (Hartree)`、力 | \\( 10^{-6} \\) Hartree、\\( 10^{-5} \\) Hartree/bohr |
-| 孤立分子（C60 など）で \\( R\_{\mathrm{hop}} \\) を分子の直径より大きくとる | DC と Cluster | 全エネルギーが一致（クラスター = 全系） | \\( 10^{-8} \\) Hartree |
-| マニュアル 27.2 節の `Si8-LNO.dat` | DC-LNO | `Utot`、LNO の数 | \\( 10^{-6} \\) Hartree |
-| 同じ系で `LNOs.Num` を PAO の数にする | DC-LNO と DC | 全エネルギーが一致 | \\( 10^{-8} \\) Hartree |
-| ダイヤモンド 64 原子程度、`orderN.KrylovH.order` をクラスターの基底数以上にする | Krylov と DC | 全エネルギーが一致（`orderN.Recalc.Buffer on`） | \\( 10^{-8} \\) Hartree |
-| 同じ系で \\( K\_H \\) を 20%〜60% に変える | Krylov | 全エネルギーの \\( K\_H \\) 依存性の曲線 | \\( 10^{-6} \\) Hartree |
-| マニュアル 48 章の `C60_LO.dat`（600 K、90 極） | `Cluster2` と Cluster | 全エネルギーが一致 | \\( 10^{-9} \\) Hartree |
-| 配布物の大規模例（`-runtestL`）の Krylov（ダイヤモンド 512 原子、`Utot` = −2964.574331104677）と DC-LNO（650 原子、`Utot` = −4111.573022279569） | Krylov・DC-LNO | `Utot` | \\( 10^{-5} \\) Hartree |
+| `DIA8_DC.dat` of manual Sec. 27.1 (diamond 8 atoms, \\( R\_{\mathrm{hop}} = 6.0 \\) Å) | DC | `Utot`, `Chemical potential (Hartree)`, forces | \\( 10^{-6} \\) Hartree, \\( 10^{-5} \\) Hartree/bohr |
+| Isolated molecule (C60 etc.) with \\( R\_{\mathrm{hop}} \\) larger than the molecular diameter | DC and Cluster | Total energies agree (cluster = whole system) | \\( 10^{-8} \\) Hartree |
+| `Si8-LNO.dat` of manual Sec. 27.2 | DC-LNO | `Utot`, number of LNOs | \\( 10^{-6} \\) Hartree |
+| Same system with `LNOs.Num` set to the number of PAOs | DC-LNO and DC | Total energies agree | \\( 10^{-8} \\) Hartree |
+| Diamond of about 64 atoms with `orderN.KrylovH.order` at least the number of basis functions of the cluster | Krylov and DC | Total energies agree (`orderN.Recalc.Buffer on`) | \\( 10^{-8} \\) Hartree |
+| Same system with \\( K\_H \\) varied over 20%–60% | Krylov | Curve of total energy vs. \\( K\_H \\) | \\( 10^{-6} \\) Hartree |
+| `C60_LO.dat` of manual Chapter 48 (600 K, 90 poles) | `Cluster2` and Cluster | Total energies agree | \\( 10^{-9} \\) Hartree |
+| Large-scale examples in the distribution (`-runtestL`): Krylov (diamond 512 atoms, `Utot` = −2964.574331104677) and DC-LNO (650 atoms, `Utot` = −4111.573022279569) | Krylov, DC-LNO | `Utot` | \\( 10^{-5} \\) Hartree |
 
-- 力は変分的でないので、全エネルギーの有限差分との差は \\( R\_{\mathrm{hop}} \\) とともに減ることだけを確かめます（例：\\( R\_{\mathrm{hop}} = 6, 8, 10 \\) Å で単調に減る）。
-  既存実装の力そのものとの照合は \\( 10^{-5} \\) Hartree/bohr を目安にします。
-- 照合では、\\( \mu \\) の区間と停止条件、エネルギー窓、`orderN.FNAN+SNAN` の適用範囲を既存実装に合わせます。
-- 大規模例の参照値は配布物に含まれる出力で、作成した版は未確認です。照合に使う前に、同じ版の既存実装で再計算します。
+- Since forces are not variational, only check that the difference from finite differences of the total energy decreases with \\( R\_{\mathrm{hop}} \\) (e.g. decreases monotonically for \\( R\_{\mathrm{hop}} = 6, 8, 10 \\) Å).
+  For comparison with the forces of the existing implementation themselves, use \\( 10^{-5} \\) Hartree/bohr as a guide.
+- For comparison, match the interval and stopping criterion for \\( \mu \\), the energy window, and the scope of `orderN.FNAN+SNAN` to the existing implementation.
+- The reference values of the large-scale examples are outputs included in the distribution, and the version that produced them is unconfirmed. Recompute with the existing implementation of the same version before using them for comparison.
 
-## 未決事項〔未確定〕
+## Open issues [Open]
 
-- `orderN.FNAN+SNAN` の行の形式（マニュアルの 2 列と既存実装の 3 整数の食い違い）と、最初の MD ステップでしか適用されないことが意図どおりか。
-- DC-LNO の最初の SCF 反復（restart なし、`LNOs.Num` なし）で LNO を作るのに使われる密度行列の中身と、その結果の LNO の数。
-- \\( \Lambda\_I \\) の固有値が複素数になる場合の扱い（実際に起きる系があるか、起きたときの影響）。
-- 第二近接を距離で並べ替えるときの同距離のサイトの順序（DC-LNO の PAO 領域の境界に影響しうる）。
-- O(N) 法での応力の計算の可否と式。
-- `EGAC` の内容（公開資料なし）と、`orderN.NumPoles` の用途。
-- 非共線の DC・DC-LNO での \\( \rho \\) の虚部（スピン軌道相互作用など）の扱いの詳細。
-- 参照したのは GPU 版で、本家 OpenMX 3.9／4.0 で上の閾値・区間・既定値が同じかは確認していません。
+- The line format of `orderN.FNAN+SNAN` (discrepancy between the manual's 2 columns and the existing implementation's 3 integers), and whether applying it only at the first MD step is intended.
+- The content of the density matrix used to build LNOs in the first SCF iteration of DC-LNO (no restart, no `LNOs.Num`), and the resulting number of LNOs.
+- The handling of complex eigenvalues of \\( \Lambda\_I \\) (whether there are systems where it actually occurs, and its effect when it does).
+- The order of equidistant sites when sorting second neighbors by distance (may affect the boundary of the PAO region in DC-LNO).
+- Whether stress can be computed with O(N) methods, and its formula.
+- The content of `EGAC` (no public documents), and the purpose of `orderN.NumPoles`.
+- Details of the handling of the imaginary part of \\( \rho \\) (spin-orbit coupling etc.) in noncollinear DC and DC-LNO.
+- The consulted version is the GPU version; whether the above thresholds, intervals, and defaults are the same in upstream OpenMX 3.9/4.0 has not been confirmed.

@@ -1,80 +1,80 @@
-# 中性原子ポテンシャルと射影子展開
+# Neutral-atom potential and projector expansion
 
-> 状態：試作（レビュー待ち）。式は技術ノート 15（Ozaki–Kino, PRB **72**, 045121 (2005) に対応、以下 TN15）と
-> 技術ノート 1（Ver. 1.3、以下 TN1）の方法を、このノートの記法で導出し直したものです。
-> 数値で確かめた部分は `tools/check_neutral_atom.py` にあります。
+> Status: prototype (awaiting review). The formulas rederive, in the notation of this note, the methods of technical note 15 (corresponding to Ozaki–Kino, PRB **72**, 045121 (2005); hereafter TN15) and
+> technical note 1 (Ver. 1.3; hereafter TN1).
+> The parts checked numerically are in `tools/check_neutral_atom.py`.
 
-## 記号〔設計〕
+## Notation [Design]
 
-[記法](../../../conventions/notation.md) と [全エネルギーと力](energy-force.md) の記号に加えて、次を使います。
+In addition to the symbols of [Notation](../../../conventions/notation.md) and [Total energy and forces](energy-force.md), the following are used.
 
-| 記号 | 意味 |
+| Symbol | Meaning |
 |---|---|
-| \\( Z\_I \\) | 原子 \\( I \\) の種の価電子数（擬ポテンシャルの芯電荷。[非局所擬ポテンシャル](nonlocal-pseudopotential.md) 2.2 節の \\( Z\_v \\)） |
-| \\( V^{\mathrm{loc}}\_I(r) \\) | 局所擬ポテンシャル。遠方で \\( -Z\_I/r \\) |
-| \\( n^{a}\_I(r) \\) | 閉じ込めた孤立原子の価電子密度。\\( 4\pi\int\_0^\infty r^2 n^{a}\_I\\, dr = Z\_I \\) |
-| \\( V^{a}\_{H,I}(r) \\) | \\( n^{a}\_I \\) の Hartree ポテンシャル |
-| \\( V^{\mathrm{na}}\_I(r) \\) | 中性原子ポテンシャル |
-| \\( r\_{c,I} \\) | PAO のカットオフ半径（PAO ファイルの `radial.cutoff.pao`） |
-| \\( \boldsymbol\tau\_{IK} = \mathbf R\_K - \mathbf R\_I \\) | 原子間ベクトル（周期像の格子ベクトルを含めて考える） |
-| \\( \bar R\_{K,l\zeta}(r) \\) | 原子 \\( K \\) の射影子展開の動径関数（3 節） |
-| \\( c\_{K,l\zeta} \\) | その \\( V^{\mathrm{na}}\_K \\) 重みのノルム（3 節） |
-| \\( \beta^{K}\_{l\zeta m}(\mathbf r) = V^{\mathrm{na}}\_K(r)\\, \bar R\_{K,l\zeta}(r)\\, S\_{lm}(\hat{\mathbf r}) \\) | 射影子（原子 \\( K \\) を原点とする） |
-| \\( L\_{\max} \\)、\\( N\_{\mathrm{rad}} \\) | 射影子展開の最大角運動量と、各 \\( l \\) の動径関数の数 |
+| \\( Z\_I \\) | Valence charge of the species of atom \\( I \\) (the core charge of the pseudopotential; \\( Z\_v \\) of Section 2.2 of [Nonlocal pseudopotential](nonlocal-pseudopotential.md)) |
+| \\( V^{\mathrm{loc}}\_I(r) \\) | Local pseudopotential. \\( -Z\_I/r \\) at large distance |
+| \\( n^{a}\_I(r) \\) | Valence density of the confined isolated atom. \\( 4\pi\int\_0^\infty r^2 n^{a}\_I\\, dr = Z\_I \\) |
+| \\( V^{a}\_{H,I}(r) \\) | Hartree potential of \\( n^{a}\_I \\) |
+| \\( V^{\mathrm{na}}\_I(r) \\) | Neutral-atom potential |
+| \\( r\_{c,I} \\) | PAO cutoff radius (`radial.cutoff.pao` in the PAO file) |
+| \\( \boldsymbol\tau\_{IK} = \mathbf R\_K - \mathbf R\_I \\) | Interatomic vector (lattice vectors of periodic images are included) |
+| \\( \bar R\_{K,l\zeta}(r) \\) | Radial function of the projector expansion of atom \\( K \\) (Section 3) |
+| \\( c\_{K,l\zeta} \\) | Its \\( V^{\mathrm{na}}\_K \\)-weighted norm (Section 3) |
+| \\( \beta^{K}\_{l\zeta m}(\mathbf r) = V^{\mathrm{na}}\_K(r)\\, \bar R\_{K,l\zeta}(r)\\, S\_{lm}(\hat{\mathbf r}) \\) | Projector (with atom \\( K \\) as origin) |
+| \\( L\_{\max} \\), \\( N\_{\mathrm{rad}} \\) | Maximum angular momentum of the projector expansion, and the number of radial functions per \\( l \\) |
 
-## 1. 中性原子ポテンシャル
+## 1. Neutral-atom potential
 
-### 1.1 定義と短距離性〔公開〕
+### 1.1 Definition and short range [Public]
 
-TN1 Eq. 18、TN15（Eq. 9 の後）に従い、原子 \\( I \\) の中性原子ポテンシャルを
+Following TN1 Eq. 18 and TN15 (after Eq. 9), the neutral-atom potential of atom \\( I \\) is defined as
 
 $$
 V^{\mathrm{na}}\_I(r) = V^{\mathrm{loc}}\_I(r) + V^{a}\_{H,I}(r),\qquad
 V^{a}\_{H,I}(r) = \int d^3 r'\\, \frac{n^{a}\_I(r')}{\lvert\mathbf r - \mathbf r'\rvert}
 $$
 
-と定義します。\\( n^{a}\_I \\) は PAO の生成に使ったのと同じ閉じ込めポテンシャルの下で求めた原子の価電子密度で、
-\\( r > r\_{c,I} \\) で 0 です。球対称な電荷分布の Hartree ポテンシャルは
+\\( n^{a}\_I \\) is the atomic valence density obtained under the same confinement potential as used to generate the PAOs, and
+vanishes for \\( r > r\_{c,I} \\). Since the Hartree potential of a spherically symmetric charge distribution is
 
 $$
 V^{a}\_{H,I}(r) = \frac{4\pi}{r}\int\_0^r dr'\\, r'^2 n^{a}\_I(r') + 4\pi\int\_r^\infty dr'\\, r' n^{a}\_I(r')
 $$
 
-なので、\\( r \ge r\_{c,I} \\) では \\( V^{a}\_{H,I}(r) = Z\_I/r \\) です（Gauss の法則）。
-一方、局所擬ポテンシャルは擬ポテンシャルの生成半径より外で \\( -Z\_I/r \\) に一致します。
-したがって \\( V^{\mathrm{na}}\_I \\) は \\( r \ge r\_{c,I} \\) で 0 になり、カットオフ半径 \\( r\_{c,I} \\) の短距離ポテンシャルです。
-物理的には、中性の原子（イオン芯と、閉じ込めた価電子雲）が外部に作るポテンシャルが 0 であることに当たります。
+we have \\( V^{a}\_{H,I}(r) = Z\_I/r \\) for \\( r \ge r\_{c,I} \\) (Gauss's law).
+On the other hand, the local pseudopotential coincides with \\( -Z\_I/r \\) outside the generation radius of the pseudopotential.
+Hence \\( V^{\mathrm{na}}\_I \\) vanishes for \\( r \ge r\_{c,I} \\), and is a short-range potential with cutoff radius \\( r\_{c,I} \\).
+Physically, this corresponds to the fact that a neutral atom (ionic core plus confined valence electron cloud) produces zero potential outside.
 
-この性質により、\\( \sum\_I V^{\mathrm{na}}\_I \\) の行列要素は有限個の原子の組だけで決まり、
-長距離の静電相互作用は差の密度 \\( \delta n = n - \sum\_I n^{a}\_I \\) の Hartree 項だけに残ります（6 節）。
+By this property, the matrix elements of \\( \sum\_I V^{\mathrm{na}}\_I \\) are determined by a finite number of atom combinations only,
+and the long-range electrostatic interaction remains only in the Hartree term of the difference density \\( \delta n = n - \sum\_I n^{a}\_I \\) (Section 6).
 
-### 1.2 入力データ〔規約〕
+### 1.2 Input data [Convention]
 
-- \\( n^{a}\_I \\)：PAO ファイルの `<valence.charge.density` ブロック。各行は \\( \ln r \\)、\\( r \\)、\\( n^{a}(r) \\)（bohr⁻³）です
-  （格子は動径関数の表と同じ。[PAO 基底](pao-basis.md)）。
-- 読み込んだ密度は、\\( 4\pi\int r^2 n^{a}\\, dr = Z\_I \\) となるように定数倍して使います。
-  配布ファイルには、表の積分が \\( Z\_I \\) と一致しないものがあります（例：C6.0 では約 4.5、\\( Z = 4 \\)）。
-  このため再規格化は省略できません。
-- \\( V^{\mathrm{loc}}\_I \\)：VPS ファイルの `<Pseudo.Potentials` ブロックの第 3 列（[非局所擬ポテンシャル](nonlocal-pseudopotential.md) 2.4 節）。
-- \\( r\_{c,I} \\)：PAO ファイルの `radial.cutoff.pao`。基底の名前（例 `C6.0`）の数字ではありません。
-- 空原子（`AtomSpecies` が 0 の種）では \\( V^{\mathrm{na}} = 0 \\)、\\( n^{a} = 0 \\) とします。
+- \\( n^{a}\_I \\): the `<valence.charge.density` block of the PAO file. Each line holds \\( \ln r \\), \\( r \\), \\( n^{a}(r) \\) (bohr⁻³)
+  (the grid is the same as for the radial-function tables; [PAO basis](pao-basis.md)).
+- The density read in is scaled by a constant so that \\( 4\pi\int r^2 n^{a}\\, dr = Z\_I \\).
+  Some distributed files have tables whose integral does not match \\( Z\_I \\) (example: about 4.5 for C6.0, with \\( Z = 4 \\)).
+  Therefore the renormalization cannot be omitted.
+- \\( V^{\mathrm{loc}}\_I \\): the third column of the `<Pseudo.Potentials` block of the VPS file (Section 2.4 of [Nonlocal pseudopotential](nonlocal-pseudopotential.md)).
+- \\( r\_{c,I} \\): `radial.cutoff.pao` in the PAO file. Not the number in the basis name (e.g. `C6.0`).
+- For empty atoms (species with `AtomSpecies` equal to 0), \\( V^{\mathrm{na}} = 0 \\) and \\( n^{a} = 0 \\).
 
-### 1.3 動径の表の作り方〔規約〕
+### 1.3 Construction of the radial table [Convention]
 
-\\( V^{\mathrm{na}}\_I \\) は VPS ファイルの動径格子 \\( \\{r\_i\\} \\) 上の表として持ちます。手順は次のとおりです。
+\\( V^{\mathrm{na}}\_I \\) is held as a table on the radial grid \\( \\{r\_i\\} \\) of the VPS file. The procedure is as follows.
 
-1. 再規格化した \\( n^{a}\_I \\) から、1.1 節の式で \\( V^{a}\_{H,I}(r\_i) \\) を数値積分します
-   （密度の表の外側では \\( Z\_I/r \\)）。
-2. **漸近形の補正**：格子点のうち \\( r\_{c,I} \\) に最も近い点 \\( r\_{\ast} \\) で
+1. From the renormalized \\( n^{a}\_I \\), compute \\( V^{a}\_{H,I}(r\_i) \\) by numerical integration of the formula in Section 1.1
+   (\\( Z\_I/r \\) outside the density table).
+2. **Asymptotic correction**: at the grid point \\( r\_{\ast} \\) closest to \\( r\_{c,I} \\), compute
 
 $$
 s\_I = -\frac{V^{\mathrm{loc}}\_I(r\_{\ast})}{V^{a}\_{H,I}(r\_{\ast})}
 $$
 
-   を求め、\\( V^{a}\_{H,I} \\) 全体を \\( s\_I \\) 倍します（\\( Z\_I \\) が 0 のときは補正しません）。
-   1.1 節の議論から \\( s\_I \\) は数値誤差の範囲で 1 です（配布ファイルの C・O・H・Fe で \\( \lvert s\_I - 1\rvert \lesssim 10^{-4} \\)）。
-   この補正で、\\( r\_{c,I} \\) で \\( V^{\mathrm{loc}}\_I + V^{a}\_{H,I} \\) が数値的にも 0 になります。
-3. **滑らかな打ち切り**：
+   and multiply all of \\( V^{a}\_{H,I} \\) by \\( s\_I \\) (no correction when \\( Z\_I \\) is 0).
+   From the argument of Section 1.1, \\( s\_I \\) is 1 within numerical error (\\( \lvert s\_I - 1\rvert \lesssim 10^{-4} \\) for the distributed files of C, O, H, Fe).
+   With this correction, \\( V^{\mathrm{loc}}\_I + V^{a}\_{H,I} \\) becomes 0 numerically as well at \\( r\_{c,I} \\).
+3. **Smooth truncation**:
 
 $$
 V^{\mathrm{na}}\_I(r) =
@@ -84,62 +84,62 @@ V^{\mathrm{na}}\_I(r) =
 \end{cases}
 $$
 
-   （\\( r \\) は bohr）。Fermi 型の因子は \\( r\_{c,I} \\) で 1/2 ですが、2 の補正で括弧の中がほぼ 0 なので、
-   \\( r\_{c,I} \\) での不連続は無視できる大きさです（配布ファイルで \\( r\_{c,I} \\) の内側 1 bohr の \\( \lvert V^{\mathrm{loc}} + sV^{a}\_H\rvert \\) は \\( 10^{-4} \\) Hartree 程度以下）。
-   \\( r > r\_{c,I} \\) での値は補間に関係なく厳密に 0 として扱います。
+   (\\( r \\) in bohr). The Fermi-type factor is 1/2 at \\( r\_{c,I} \\), but since the bracket is nearly 0 owing to the correction in step 2,
+   the discontinuity at \\( r\_{c,I} \\) is negligible (for the distributed files, \\( \lvert V^{\mathrm{loc}} + sV^{a}\_H\rvert \\) within 1 bohr inside \\( r\_{c,I} \\) is of order \\( 10^{-4} \\) Hartree or less).
+   Values for \\( r > r\_{c,I} \\) are treated as exactly 0, independent of interpolation.
 
-\\( V^{a}\_{H,I} \\) 自体（補正後）も、[全エネルギーと力](energy-force.md) の遮蔽された原子間項で使います。
+\\( V^{a}\_{H,I} \\) itself (after correction) is also used in the screened interatomic term of [Total energy and forces](energy-force.md).
 
-〔設計〕補間の方式は定めません。\\( r < r\_1 \\)（最初の格子点より内側）では \\( V^{\mathrm{na}} \\) を \\( a r^2 + b \\) の形で
-滑らかに延長します（原点で正則なので）。既存実装もこの形の延長を使っています〔規約〕。
+[Design] The interpolation scheme is not specified. For \\( r < r\_1 \\) (inside the first grid point), \\( V^{\mathrm{na}} \\) is extended smoothly in the form \\( a r^2 + b \\)
+(since it is regular at the origin). The existing implementation also uses an extension of this form [Convention].
 
-### 1.4 波数空間の表〔規約〕
+### 1.4 Wavenumber-space tables [Convention]
 
-4 節と 3.5 節の波数空間の積分には、\\( V^{\mathrm{na}}\_I \\) と \\( \beta^{K} \\) の動径関数の球 Bessel 変換
+The wavenumber-space integrals of Sections 4 and 3.5 use the spherical Bessel transforms of the radial functions of \\( V^{\mathrm{na}}\_I \\) and \\( \beta^{K} \\),
 
 $$
 \tilde V^{\mathrm{na}}\_I(k) = \int\_0^{\infty} dr\\, r^2 j\_0(kr)\\, V^{\mathrm{na}}\_I(r)
 $$
 
-を使います（[記法](../../../conventions/notation.md) の規約）。既存実装は、実空間の積分を \\( r\_{c,I} + 0.5 \\) bohr で打ち切り、
-波数は \\( 10^{-6} \le k \le k\_{\max} \\)（\\( k\_{\max} = \sqrt{E} \\)、\\( E \\) は `1DFFT.EnergyCutoff`、既定 3600 Ry で 60 bohr⁻¹）の
-区間の Gauss–Legendre 300 点の上で表にします。波数の積分も同じ 300 点で行います。
-[二中心積分](two-center-overlap-kinetic.md) の重なり・運動エネルギーの等間隔格子とは別の格子です。
+(the convention of [Notation](../../../conventions/notation.md)). The existing implementation truncates the real-space integral at \\( r\_{c,I} + 0.5 \\) bohr, and
+tabulates on 300 Gauss–Legendre points in the wavenumber interval \\( 10^{-6} \le k \le k\_{\max} \\) (\\( k\_{\max} = \sqrt{E} \\), where \\( E \\) is `1DFFT.EnergyCutoff`; 60 bohr⁻¹ at the default 3600 Ry).
+The wavenumber integrals are also performed on the same 300 points.
+This grid is separate from the uniform grid for overlap and kinetic energy in [Two-center integrals](two-center-overlap-kinetic.md).
 
-## 2. 行列要素の分類〔公開〕〔規約〕
+## 2. Classification of matrix elements [Public] [Convention]
 
-ハミルトニアンの中性原子項は
+The neutral-atom term of the Hamiltonian is
 
 $$
 V^{\mathrm{na}}\_{I\alpha,J\beta}(\mathbf L) = \sum\_{K} \langle \phi\_{I\alpha} \vert V^{\mathrm{na}}\_K \vert \phi\_{J\beta}(\cdot - \boldsymbol\tau\_{IJ\mathbf L}) \rangle
 $$
 
-で、和は \\( V^{\mathrm{na}}\_K \\) の台が両方の基底関数と重なるすべての原子 \\( K \\)（周期像を含む）にわたります。
-\\( K \\) と \\( I \\)、\\( J \\) の関係で、次のように計算方法を分けます。
+where the sum runs over all atoms \\( K \\) (including periodic images) whose \\( V^{\mathrm{na}}\_K \\) support overlaps both basis functions.
+The computational method is split according to the relation of \\( K \\) to \\( I \\) and \\( J \\), as follows.
 
-| 場合 | 例 | 計算方法 | 出典 |
+| Case | Example | Method | Source |
 |---|---|---|---|
-| 同じ原子上の基底対（\\( J = I \\)、\\( \mathbf L = 0 \\)） | \\( K = I \\)（一中心）、\\( K \ne I \\)（二中心） | 波数空間で直接（4 節） | TN15、〔規約〕 |
-| 異なる原子の基底対で、\\( K = I \\) または \\( K = J \\) | 二中心 | 射影子展開（3 節）。基底関数が展開の動径関数の張る空間に入るので厳密 | TN15 Eq. 16、〔規約〕 |
-| 異なる原子の基底対で、\\( K \ne I, J \\) | 三中心 | 射影子展開（近似） | TN15 Eq. 13 |
-| `scf.ProExpn.VNA off` のとき | すべて | 実空間格子上の和（5 節） | マニュアル、〔規約〕 |
+| Basis pair on the same atom (\\( J = I \\), \\( \mathbf L = 0 \\)) | \\( K = I \\) (one-center), \\( K \ne I \\) (two-center) | Directly in wavenumber space (Section 4) | TN15, [Convention] |
+| Basis pair on different atoms, with \\( K = I \\) or \\( K = J \\) | two-center | Projector expansion (Section 3). Exact, since the basis functions lie in the space spanned by the radial functions of the expansion | TN15 Eq. 16, [Convention] |
+| Basis pair on different atoms, with \\( K \ne I, J \\) | three-center | Projector expansion (approximate) | TN15 Eq. 13 |
+| With `scf.ProExpn.VNA off` | all | Sum on the real-space grid (Section 5) | manual, [Convention] |
 
-〔公開〕TN15 は、\\( K = I \\) または \\( K = J \\) の二中心の場合に、展開が \\( V^{\mathrm{na}}\_K\vert\phi\rangle \\) を厳密に再現する性質（TN15 Eq. 16）を使うこと、
-\\( I = J \ne K \\) の場合は \\( V^{\mathrm{na}}\_K \\) と動径関数の積を波数空間で扱って別に計算することを述べています。
+[Public] TN15 states that, for the two-center case with \\( K = I \\) or \\( K = J \\), the property that the expansion reproduces \\( V^{\mathrm{na}}\_K\vert\phi\rangle \\) exactly (TN15 Eq. 16) is used,
+and that the case \\( I = J \ne K \\) is computed separately by treating the product of \\( V^{\mathrm{na}}\_K \\) and the radial functions in wavenumber space.
 
-〔規約〕既存実装（`scf.ProExpn.VNA on`、既定）の具体的な分け方は次のとおりです。
+[Convention] The concrete split in the existing implementation (`scf.ProExpn.VNA on`, default) is as follows.
 
-- **同じ原子上のブロック**（\\( J = I \\)、\\( \mathbf L = 0 \\)）：\\( K = I \\) を含むすべての \\( K \\) について、4 節の直接計算の和を使います。
-  射影子展開の値は使いません。
-- **それ以外のブロック**（\\( J \ne I \\) または \\( \mathbf L \ne 0 \\)。同じ原子の周期像どうしも含む）：
-  \\( K = I \\)、\\( K = J \\) を含むすべての \\( K \\) について射影子展開の和をとり、3.6 節の滑らかな打ち切り因子を掛けます。
-  \\( K = I, J \\) の項を別の式で計算することはしません（展開が厳密なので、結果は同じです）。
+- **Blocks on the same atom** (\\( J = I \\), \\( \mathbf L = 0 \\)): for all \\( K \\), including \\( K = I \\), the sum of the direct computations of Section 4 is used.
+  Values from the projector expansion are not used.
+- **Other blocks** (\\( J \ne I \\) or \\( \mathbf L \ne 0 \\); including pairs of periodic images of the same atom):
+  the projector-expansion sum over all \\( K \\), including \\( K = I \\) and \\( K = J \\), is taken and multiplied by the smooth truncation factor of Section 3.6.
+  The terms with \\( K = I, J \\) are not computed by a separate formula (since the expansion is exact, the result is the same).
 
-## 3. 射影子展開
+## 3. Projector expansion
 
-### 3.1 展開の形〔公開〕
+### 3.1 Form of the expansion [Public]
 
-TN15 Eq. 13–15（TN1 Eq. 32–34）に従い、原子 \\( K \\) の \\( V^{\mathrm{na}}\_K \\) を分離型の演算子
+Following TN15 Eq. 13–15 (TN1 Eq. 32–34), \\( V^{\mathrm{na}}\_K \\) of atom \\( K \\) is approximated by the separable operator
 
 $$
 \hat V^{\mathrm{na}}\_K = \sum\_{l=0}^{L\_{\max}} \sum\_{m=-l}^{l} \sum\_{\zeta=1}^{N\_{\mathrm{rad}}}
@@ -147,116 +147,116 @@ $$
 \beta^{K}\_{l\zeta m}(\mathbf r) = V^{\mathrm{na}}\_K(r)\\, \bar R\_{K,l\zeta}(r)\\, S\_{lm}(\hat{\mathbf r})
 $$
 
-で近似します。動径関数 \\( \bar R\_{l\zeta} \\)（以下 \\( K \\) を省略）は、種の関数 \\( \chi\_{l\zeta} \\)（3.2 節）を
-\\( V^{\mathrm{na}}\_K \\) を重みとする内積
+The radial functions \\( \bar R\_{l\zeta} \\) (\\( K \\) omitted below) are obtained from the seed functions \\( \chi\_{l\zeta} \\) (Section 3.2) by Gram–Schmidt orthogonalization
+with respect to the \\( V^{\mathrm{na}}\_K \\)-weighted inner product
 
 $$
 (f, g)\_V = \int\_0^\infty dr\\, r^2 f(r)\\, V^{\mathrm{na}}\_K(r)\\, g(r)
 $$
 
-で Gram–Schmidt 直交化したものです：
+that is:
 
 $$
 \bar R\_{l\zeta} = \chi\_{l\zeta} - \sum\_{\eta < \zeta} \frac{(\bar R\_{l\eta}, \chi\_{l\zeta})\_V}{c\_{l\eta}}\\, \bar R\_{l\eta},\qquad
 c\_{l\zeta} = (\bar R\_{l\zeta}, \bar R\_{l\zeta})\_V .
 $$
 
-**性質（TN15 Eq. 16）**：動径関数が \\( \mathrm{span}\\{\bar R\_{l\zeta}\\}\_\zeta \\) に入る関数
-\\( f(\mathbf r) = R(r) S\_{lm}(\hat{\mathbf r}) \\)（\\( l \le L\_{\max} \\)）については \\( \hat V^{\mathrm{na}}\_K f = V^{\mathrm{na}}\_K f \\) が厳密に成り立ちます。
-実際、\\( R = \sum\_\zeta a\_\zeta \bar R\_{l\zeta} \\) と書くと、直交性 \\( (\bar R\_{l\zeta'}, \bar R\_{l\zeta})\_V = \delta\_{\zeta\zeta'} c\_{l\zeta} \\) と
-球面調和関数の直交性から \\( \langle \beta^{K}\_{l'\zeta' m'} \vert f \rangle = \delta\_{ll'}\delta\_{mm'} a\_{\zeta'} c\_{l\zeta'} \\) となり、
+**Property (TN15 Eq. 16)**: for a function \\( f(\mathbf r) = R(r) S\_{lm}(\hat{\mathbf r}) \\) (\\( l \le L\_{\max} \\)) whose radial function lies in \\( \mathrm{span}\\{\bar R\_{l\zeta}\\}\_\zeta \\),
+\\( \hat V^{\mathrm{na}}\_K f = V^{\mathrm{na}}\_K f \\) holds exactly.
+Indeed, writing \\( R = \sum\_\zeta a\_\zeta \bar R\_{l\zeta} \\), the orthogonality \\( (\bar R\_{l\zeta'}, \bar R\_{l\zeta})\_V = \delta\_{\zeta\zeta'} c\_{l\zeta} \\) and
+the orthogonality of spherical harmonics give \\( \langle \beta^{K}\_{l'\zeta' m'} \vert f \rangle = \delta\_{ll'}\delta\_{mm'} a\_{\zeta'} c\_{l\zeta'} \\), so
 
 $$
 \hat V^{\mathrm{na}}\_K f = \sum\_{\zeta'} V^{\mathrm{na}}\_K \bar R\_{l\zeta'} S\_{lm}\\, a\_{\zeta'} = V^{\mathrm{na}}\_K f
 $$
 
-です。したがって、原子 \\( K \\) 上の基底関数が展開の空間に入っていれば、任意の \\( \phi \\) について
-\\( \langle \phi \vert \hat V^{\mathrm{na}}\_K \vert \phi\_{K\alpha} \rangle = \langle \phi \vert V^{\mathrm{na}}\_K \vert \phi\_{K\alpha} \rangle \\) です。
-三中心の項は \\( L\_{\max} \\)、\\( N\_{\mathrm{rad}} \\) を増やすと厳密な値に収束します（TN15 Fig. 2）。
+Therefore, if the basis functions on atom \\( K \\) lie in the expansion space, then for any \\( \phi \\),
+\\( \langle \phi \vert \hat V^{\mathrm{na}}\_K \vert \phi\_{K\alpha} \rangle = \langle \phi \vert V^{\mathrm{na}}\_K \vert \phi\_{K\alpha} \rangle \\).
+Three-center terms converge to the exact values as \\( L\_{\max} \\) and \\( N\_{\mathrm{rad}} \\) are increased (TN15 Fig. 2).
 
-- \\( V^{\mathrm{na}} \\) は符号が一定とは限らない（多くの原子でほぼ負）ので、\\( (\cdot,\cdot)\_V \\) は内積としては不定値です。
-  \\( c\_{l\zeta} \\) は負にも 0 に近くにもなりえます。この展開は \\( V^{\mathrm{na}}\_K \\) の符号を保つ必要がない点に注意してください。
-- 分離型なので、三中心の行列要素は二中心積分 \\( \langle \phi \vert \beta \rangle \\) の積の和になり、
-  [非局所擬ポテンシャル](nonlocal-pseudopotential.md) と同じ組み立て方が使えます（射影子エネルギー \\( D \\) が対角の \\( 1/c \\) に当たる）。
-- \\( \hat V^{\mathrm{na}}\_K \\) は回転不変です（各 \\( l \\) で \\( m \\) について和をとるので）。\\( S\_{lm} \\) を複素の \\( Y\_{lm} \\) に替えても同じ演算子です。
+- \\( V^{\mathrm{na}} \\) does not necessarily have a definite sign (it is mostly negative for many atoms), so \\( (\cdot,\cdot)\_V \\) is indefinite as an inner product.
+  \\( c\_{l\zeta} \\) can be negative or close to 0. Note that this expansion does not need to preserve the sign of \\( V^{\mathrm{na}}\_K \\).
+- Because it is separable, the three-center matrix elements become sums of products of two-center integrals \\( \langle \phi \vert \beta \rangle \\),
+  and the same assembly as for the [Nonlocal pseudopotential](nonlocal-pseudopotential.md) can be used (the projector energy \\( D \\) corresponds to the diagonal \\( 1/c \\)).
+- \\( \hat V^{\mathrm{na}}\_K \\) is rotationally invariant (since the sum over \\( m \\) is taken for each \\( l \\)). Replacing \\( S\_{lm} \\) by complex \\( Y\_{lm} \\) gives the same operator.
 
-### 3.2 種の関数〔公開〕〔規約〕
+### 3.2 Seed functions [Public] [Convention]
 
-〔公開〕TN15 は、種の関数として、\\( n^{a} \\) と同じ閉じ込めポテンシャルの下で求めた基底状態と励起状態の擬原子軌道を使うと述べています。
+[Public] TN15 states that the pseudo-atomic orbitals of the ground and excited states, obtained under the same confinement potential as \\( n^{a} \\), are used as seed functions.
 
-〔規約〕既存実装の種の関数は次のとおりです。PAO ファイルに格納された動径関数を \\( R^{\mathrm{PAO}}\_{l\zeta} \\)
-（\\( l = 0,\dots,L\_p \\)、\\( \zeta = 0,\dots,M\_p - 1 \\)、\\( L\_p \\) は `PAO.Lmax`、\\( M\_p \\) は `PAO.Mul`）、
-\\( u(r) = V^{\mathrm{na}}\_K(r)/10 + 10^{-13} \\) とし、\\( \zeta \\) を 0 始まりで数えます。
+[Convention] The seed functions of the existing implementation are as follows. Let the radial functions stored in the PAO file be \\( R^{\mathrm{PAO}}\_{l\zeta} \\)
+(\\( l = 0,\dots,L\_p \\), \\( \zeta = 0,\dots,M\_p - 1 \\); \\( L\_p \\) is `PAO.Lmax` and \\( M\_p \\) is `PAO.Mul`),
+let \\( u(r) = V^{\mathrm{na}}\_K(r)/10 + 10^{-13} \\), and count \\( \zeta \\) from 0.
 
-| 条件 | 種の関数 \\( \chi\_{l\zeta}(r) \\) |
+| Condition | Seed function \\( \chi\_{l\zeta}(r) \\) |
 |---|---|
-| \\( l \le L\_p \\)、\\( \zeta < M\_p \\) | \\( R^{\mathrm{PAO}}\_{l\zeta}(r) \\) |
-| \\( l \le L\_p \\)、\\( \zeta \ge M\_p \\) | \\( R^{\mathrm{PAO}}\_{l0}(r)\\, u(r)^{\zeta} \\) |
-| \\( l > L\_p \\)、\\( \zeta < M\_p \\) | \\( R^{\mathrm{PAO}}\_{L\_p\zeta}(r)\\, r^{\\,l - L\_p} \\) |
-| \\( l > L\_p \\)、\\( \zeta \ge M\_p \\) | \\( R^{\mathrm{PAO}}\_{L\_p, M\_p-1}(r)\\, u(r)^{\\,\zeta - M\_p + 1} \\) |
+| \\( l \le L\_p \\), \\( \zeta < M\_p \\) | \\( R^{\mathrm{PAO}}\_{l\zeta}(r) \\) |
+| \\( l \le L\_p \\), \\( \zeta \ge M\_p \\) | \\( R^{\mathrm{PAO}}\_{l0}(r)\\, u(r)^{\zeta} \\) |
+| \\( l > L\_p \\), \\( \zeta < M\_p \\) | \\( R^{\mathrm{PAO}}\_{L\_p\zeta}(r)\\, r^{\\,l - L\_p} \\) |
+| \\( l > L\_p \\), \\( \zeta \ge M\_p \\) | \\( R^{\mathrm{PAO}}\_{L\_p, M\_p-1}(r)\\, u(r)^{\\,\zeta - M\_p + 1} \\) |
 
-- 使う PAO は、計算で選んだ基底（例 `s2p2d1`）ではなく、ファイルに格納されたものすべての先頭からです。
-  配布されている PAO ファイルは \\( M\_p = 15 \\)（1 つだけ 20、1 つだけ 5）なので、既定の \\( N\_{\mathrm{rad}} = 12 \\) では
-  \\( l \le L\_p \\) の種はすべて PAO そのものです。
-- 基底関数は PAO ファイルの先頭の動径関数（またはその線形結合）なので、各 \\( l \le \min(L\_p, L\_{\max}) \\) で選んだ動径関数の数が
-  \\( N\_{\mathrm{rad}} \\) 以下なら、3.1 節の性質により二中心の項は厳密です。
-- \\( l > L\_p \\) の種は、\\( l = L\_p \\) の PAO に \\( r^{l-L\_p} \\) を掛けて原点付近の振る舞い \\( r^l \\) を合わせたものです。
-  既定の \\( L\_{\max} \\)（3.4 節）は通常 \\( L\_p \\) より大きいので、この行は既定の計算で実際に使われます。
-- 動径関数は VPS の動径格子に補間して扱います（[PAO 基底](pao-basis.md) の範囲外の値の規則に従う）。
+- The PAOs used are not the basis selected for the calculation (e.g. `s2p2d1`) but all of those stored in the file, from the first one.
+  The distributed PAO files have \\( M\_p = 15 \\) (only one has 20 and only one has 5), so with the default \\( N\_{\mathrm{rad}} = 12 \\),
+  all seeds for \\( l \le L\_p \\) are the PAOs themselves.
+- Since the basis functions are the leading radial functions of the PAO file (or linear combinations of them), if the number of selected radial functions for each \\( l \le \min(L\_p, L\_{\max}) \\)
+  is at most \\( N\_{\mathrm{rad}} \\), the two-center terms are exact by the property of Section 3.1.
+- The seeds for \\( l > L\_p \\) are the \\( l = L\_p \\) PAOs multiplied by \\( r^{l-L\_p} \\) to match the behavior \\( r^l \\) near the origin.
+  The default \\( L\_{\max} \\) (Section 3.4) is usually larger than \\( L\_p \\), so these rows are actually used in default calculations.
+- The radial functions are interpolated onto the VPS radial grid (following the rules for out-of-range values in [PAO basis](pao-basis.md)).
 
-### 3.3 直交化の数値的な扱い〔規約〕〔設計〕
+### 3.3 Numerical treatment of the orthogonalization [Convention] [Design]
 
-〔規約〕既存実装の手順の要点は次のとおりです。
+[Convention] The key points of the procedure in the existing implementation are as follows.
 
-- 種の関数は、直交化の前に通常のノルム \\( \int r^2 \chi^2 dr \\) で規格化します。
-- 直交化は 3.1 節の式そのもの（係数に元の種 \\( \chi\_{l\zeta} \\) を使う古典的 Gram–Schmidt）です。
-- \\( \lvert c\_{l\zeta}\rvert < 10^{-15} \\) の項は \\( 1/c\_{l\zeta} = 0 \\) として捨てます。空原子ではすべての項を捨てます。
-- 動径積分は、VPS の動径格子の最初の点から最後の点までの区間を Gauss–Legendre 300 点で行います。
-- 規格化の取り方（\\( \bar R \\) の定数倍）は \\( \lvert\beta\rangle\langle\beta\rvert/c \\) で打ち消すので、展開に影響しません。
+- Before orthogonalization, the seed functions are normalized with the ordinary norm \\( \int r^2 \chi^2 dr \\).
+- The orthogonalization is exactly the formula of Section 3.1 (classical Gram–Schmidt, using the original seeds \\( \chi\_{l\zeta} \\) in the coefficients).
+- Terms with \\( \lvert c\_{l\zeta}\rvert < 10^{-15} \\) are discarded by setting \\( 1/c\_{l\zeta} = 0 \\). For empty atoms, all terms are discarded.
+- Radial integrals are performed with 300 Gauss–Legendre points over the interval from the first to the last point of the VPS radial grid.
+- The choice of normalization (a constant multiple of \\( \bar R \\)) cancels in \\( \lvert\beta\rangle\langle\beta\rvert/c \\), so it does not affect the expansion.
 
-〔設計〕再実装では、直交化を修正 Gram–Schmidt や、\\( (\cdot,\cdot)\_V \\) の Gram 行列の対角化で行ってもよいです
-（厳密な算術では同じ展開になります）。ただし、種の関数がほぼ一次従属になる（\\( c \\) が非常に小さい）と
-\\( 1/c \\) が大きくなって丸め誤差が増えるので、上の閾値のような安全策を必ず入れます。
+[Design] In the reimplementation, the orthogonalization may be done by modified Gram–Schmidt or by diagonalizing the Gram matrix of \\( (\cdot,\cdot)\_V \\)
+(in exact arithmetic these give the same expansion). However, when the seed functions become nearly linearly dependent (\\( c \\) very small),
+\\( 1/c \\) becomes large and rounding errors grow, so a safeguard such as the threshold above must always be included.
 
-### 3.4 打ち切りの値〔公開〕〔規約〕
+### 3.4 Truncation values [Public] [Convention]
 
-〔公開〕TN15 は、H₂O 分子での収束の結果から、\\( L\_{\max} \\) を「基底の最大の角運動量 + 4」、\\( N\_{\mathrm{rad}} = 4 \\) とすることを推奨しています。
-水分子では \\( L\_{\max} \approx 6 \\)、\\( N\_{\mathrm{rad}} \approx 4 \\) で収束し、どちらも最低 2 は必要だとしています。
+[Public] From convergence results for the H₂O molecule, TN15 recommends \\( L\_{\max} \\) = "maximum angular momentum of the basis + 4" and \\( N\_{\mathrm{rad}} = 4 \\).
+For the water molecule, convergence is reached at \\( L\_{\max} \approx 6 \\), \\( N\_{\mathrm{rad}} \approx 4 \\), and both are stated to require at least 2.
 
-〔規約〕既存実装の既定値はこれより大きく、入力キーワードで変えられます。
+[Convention] The defaults of the existing implementation are larger than these and can be changed by input keywords.
 
-| キーワード | 既定値 | 意味 |
+| Keyword | Default | Meaning |
 |---|---|---|
-| `scf.ProExpn.VNA` | on | 射影子展開を使うか。off なら実空間格子で計算（マニュアル 8.2 節に記載） |
-| `scf.BufferL.VNA` | 6 | \\( L\_{\max} = \max\_{\text{全種}}(\text{基底の最大の } l) + \\) この値 |
+| `scf.ProExpn.VNA` | on | Whether to use the projector expansion. If off, computed on the real-space grid (described in Section 8.2 of the manual) |
+| `scf.BufferL.VNA` | 6 | \\( L\_{\max} = \max\_{\text{all species}}(\text{maximum } l \text{ of the basis}) + \\) this value |
 | `scf.RadialF.VNA` | 12 | \\( N\_{\mathrm{rad}} \\) |
 
-- \\( L\_{\max} \\)、\\( N\_{\mathrm{rad}} \\) は全種で共通です（種ごとではなく、計算に現れるすべての種の基底の最大 \\( l \\) で決まる）。
-  例：基底が `s2p2d1` までなら \\( L\_{\max} = 8 \\)。
-- 後の 2 つのキーワードはマニュアルのキーワード一覧には見当たりません。
+- \\( L\_{\max} \\) and \\( N\_{\mathrm{rad}} \\) are common to all species (not per species; determined by the maximum basis \\( l \\) over all species appearing in the calculation).
+  Example: if the basis goes up to `s2p2d1`, \\( L\_{\max} = 8 \\).
+- The latter two keywords are not found in the keyword list of the manual.
 
-〔設計〕再実装は既存実装の既定値（6 と 12）に合わせます。fixture との照合も既定値で行います。
+[Design] The reimplementation matches the defaults of the existing implementation (6 and 12). Comparisons with fixtures are also done at the defaults.
 
-### 3.5 射影子との重なり〔公開〕
+### 3.5 Overlap with projectors [Public]
 
-\\( \langle \phi\_{I\alpha} \vert \beta^{K}\_{l\zeta m} \rangle \\) は、[二中心積分](two-center-overlap-kinetic.md) の重なりの式で、
-\\( \phi\_b \\) の動径関数を \\( V^{\mathrm{na}}\_K \bar R\_{K,l\zeta} \\) に、原子間ベクトルを \\( \boldsymbol\tau\_{IK} \\) に替えたものです（TN1 の方法）。
-\\( V^{\mathrm{na}}\_K \bar R\_{K,l\zeta} \\) の球 Bessel 変換を 1.4 節と同じ格子で表にしておきます。
-\\( \lVert\boldsymbol\tau\_{IK}\rVert \ge r\_{c,I} + r\_{c,K} \\) では厳密に 0 です。
+\\( \langle \phi\_{I\alpha} \vert \beta^{K}\_{l\zeta m} \rangle \\) is the overlap formula of [Two-center integrals](two-center-overlap-kinetic.md)
+with the radial function of \\( \phi\_b \\) replaced by \\( V^{\mathrm{na}}\_K \bar R\_{K,l\zeta} \\) and the interatomic vector replaced by \\( \boldsymbol\tau\_{IK} \\) (the method of TN1).
+The spherical Bessel transform of \\( V^{\mathrm{na}}\_K \bar R\_{K,l\zeta} \\) is tabulated on the same grid as in Section 1.4.
+It is exactly 0 for \\( \lVert\boldsymbol\tau\_{IK}\rVert \ge r\_{c,I} + r\_{c,K} \\).
 
-### 3.6 三中心の和と滑らかな打ち切り〔規約〕
+### 3.6 Three-center sum and smooth truncation [Convention]
 
-〔規約〕異なる原子のブロックは
+[Convention] Blocks between different atoms are
 
 $$
 V^{\mathrm{na}}\_{I\alpha,J\beta}(\mathbf L) = d\big(\lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert;\\, r\_{c,I} + r\_{c,J}\big)
 \sum\_{K} \sum\_{l\zeta m} \frac{\langle \phi\_{I\alpha} \vert \beta^{K}\_{l\zeta m} \rangle \langle \beta^{K}\_{l\zeta m} \vert \phi\_{J\beta}(\cdot-\boldsymbol\tau\_{IJ\mathbf L}) \rangle}{c\_{K,l\zeta}}
 $$
 
-です。\\( K \\)（周期像を含む）は、\\( I \\) とも \\( J \\) とも原子対の範囲（[疎ブロック形式](../design/sparse-block-format.md)、
-距離が \\( r\_c \\) の和以下）にあるものにわたります。この範囲の外では片方の重なりが 0 なので、和の打ち切りは厳密です。
+\\( K \\) (including periodic images) runs over atoms within atom-pair range of both \\( I \\) and \\( J \\) ([sparse block format](../design/sparse-block-format.md);
+distance at most the sum of \\( r\_c \\)). Outside this range one of the overlaps is 0, so the truncation of the sum is exact.
 
-打ち切り因子 \\( d \\) は、バッファ幅 1 bohr の \\( C^2 \\) の階段関数です。\\( x = R - R\_c \\) として
+The truncation factor \\( d \\) is a \\( C^2 \\) step function with a buffer width of 1 bohr. With \\( x = R - R\_c \\),
 
 $$
 d(R; R\_c) =
@@ -267,27 +267,27 @@ d(R; R\_c) =
 \end{cases}
 $$
 
-（\\( R \\) は bohr）。\\( x = -1 \\) で値 1・1 階と 2 階の微分 0、\\( x = 0 \\) で値・1 階・2 階の微分 0 になる 5 次多項式です。
+(\\( R \\) in bohr). It is the quintic polynomial with value 1 and vanishing first and second derivatives at \\( x = -1 \\), and vanishing value, first, and second derivatives at \\( x = 0 \\).
 
-- **理由**：厳密な行列要素 \\( \langle\phi\_I\vert V^{\mathrm{na}}\_K\vert\phi\_J\rangle \\) は、\\( \phi\_I \\) と \\( \phi\_J \\) の台が重ならない
-  \\( \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \ge r\_{c,I} + r\_{c,J} \\) で 0 ですが、分離型の近似ではこの性質が失われ、
-  原子対の範囲の端で値が不連続に 0 になります。因子 \\( d \\) は、対が範囲に出入りするときにエネルギーと力を連続にします。
-- 同じ原子上のブロック（2 節の直接計算）には掛けません（\\( d(0) = 1 \\) でもあります）。
-- 因子は行列要素そのものに掛かるので、ハミルトニアン、`Una`、力のすべてに一貫して現れます。力ではその微分も必要です（7 節）。
+- **Reason**: the exact matrix element \\( \langle\phi\_I\vert V^{\mathrm{na}}\_K\vert\phi\_J\rangle \\) is 0 for \\( \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \ge r\_{c,I} + r\_{c,J} \\),
+  where the supports of \\( \phi\_I \\) and \\( \phi\_J \\) do not overlap, but the separable approximation loses this property,
+  and the value drops discontinuously to 0 at the edge of the atom-pair range. The factor \\( d \\) makes the energy and forces continuous as pairs enter or leave the range.
+- It is not applied to blocks on the same atom (the direct computation of Section 2) (also, \\( d(0) = 1 \\)).
+- Since the factor multiplies the matrix elements themselves, it appears consistently in the Hamiltonian, `Una`, and the forces. For the forces, its derivative is also needed (Section 7).
 
-## 4. 同じ原子上の基底対と別原子の \\( V^{\mathrm{na}} \\)〔公開〕〔規約〕
+## 4. Basis pairs on the same atom and \\( V^{\mathrm{na}} \\) of another atom [Public] [Convention]
 
-TN15 が波数空間で扱うとしている場合（\\( I = J \\)、\\( \mathbf L = 0 \\)、\\( K \\) は任意）の式を、このノートの規約で導きます。
+The formula for the case that TN15 treats in wavenumber space (\\( I = J \\), \\( \mathbf L = 0 \\), arbitrary \\( K \\)) is derived in the conventions of this note.
 
-原子 \\( I \\) を原点とし、\\( \boldsymbol\tau = \boldsymbol\tau\_{IK} \\)、
-\\( \phi\_a = R\_a(r) Y\_{lm} \\)、\\( \phi\_b = R\_b(r) Y\_{l'm'} \\) とします。角度部分の積を
+Take atom \\( I \\) as the origin, \\( \boldsymbol\tau = \boldsymbol\tau\_{IK} \\),
+\\( \phi\_a = R\_a(r) Y\_{lm} \\), \\( \phi\_b = R\_b(r) Y\_{l'm'} \\). Expanding the product of the angular parts as
 
 $$
 Y^{\ast}\_{lm} Y\_{l'm'} = \sum\_{LM} G(lm;\\, l'm',\\, LM)\\, Y^{\ast}\_{LM}
 $$
 
-と展開し（\\( G \\) は [二中心積分](two-center-overlap-kinetic.md) の Gaunt 係数、和は \\( M = m - m' \\) だけ）、
-\\( V^{\mathrm{na}}\_K(\lvert\mathbf r - \boldsymbol\tau\rvert) \\) を Fourier 積分で書いて平面波展開を 2 回使うと、
+(\\( G \\) is the Gaunt coefficient of [Two-center integrals](two-center-overlap-kinetic.md); the sum is only over \\( M = m - m' \\)),
+writing \\( V^{\mathrm{na}}\_K(\lvert\mathbf r - \boldsymbol\tau\rvert) \\) as a Fourier integral and using the plane-wave expansion twice, one obtains
 
 $$
 \langle \phi\_a \vert V^{\mathrm{na}}\_K(\cdot - \boldsymbol\tau) \vert \phi\_b \rangle
@@ -299,77 +299,77 @@ $$
 \tilde P^{ab}\_L(k) = \int\_0^\infty dr\\, r^2 j\_L(kr)\\, R\_a(r) R\_b(r)
 $$
 
-が得られます。導出の要点：\\( \int d^3r\\, f(r) Y^{\ast}\_{LM}(\hat{\mathbf r}) e^{i\mathbf k\cdot\mathbf r} = 4\pi i^L Y^{\ast}\_{LM}(\hat{\mathbf k}) \tilde f\_L(k) \\)、
-\\( e^{-i\mathbf k\cdot\boldsymbol\tau} \\) の展開の係数 \\( (-i)^L \\) と打ち消し合い位相が残りません。
-係数 8 は \\( (4\pi)^3/(2\pi)^3 \\) です（3 次元の Fourier 変換 \\( 4\pi\tilde V^{\mathrm{na}}\_K \\) の \\( 4\pi \\) を含む）。
+Key points of the derivation: \\( \int d^3r\\, f(r) Y^{\ast}\_{LM}(\hat{\mathbf r}) e^{i\mathbf k\cdot\mathbf r} = 4\pi i^L Y^{\ast}\_{LM}(\hat{\mathbf k}) \tilde f\_L(k) \\)
+cancels against the coefficient \\( (-i)^L \\) of the expansion of \\( e^{-i\mathbf k\cdot\boldsymbol\tau} \\), so no phase remains.
+The coefficient 8 is \\( (4\pi)^3/(2\pi)^3 \\) (including the \\( 4\pi \\) of the three-dimensional Fourier transform \\( 4\pi\tilde V^{\mathrm{na}}\_K \\)).
 
-- \\( \tau = 0 \\)（\\( K = I \\)、一中心）：\\( j\_L(0) = \delta\_{L0} \\) なので
-  \\( \langle\phi\_a\vert V^{\mathrm{na}}\_I\vert\phi\_b\rangle = \delta\_{ll'}\delta\_{mm'}\int\_0^\infty dr\\, r^2 R\_a R\_b V^{\mathrm{na}}\_I \\) です。
-  方向 \\( \hat{\boldsymbol\tau} \\) は不定なので特別に扱います。
-- 実球面調和関数の基底では、[二中心積分](two-center-overlap-kinetic.md) 4 節と同じ変換で実数にします。
-- \\( \tau \ge r\_{c,I} + r\_{c,K} \\) では厳密に 0 です。
-- 〔規約〕既存実装は \\( \tilde P^{ab}\_L \\) を \\( \tilde V^{\mathrm{na}}\_K \\) と同じ Gauss–Legendre の波数格子で表にし、同じ格子で \\( k \\) 積分します。
+- \\( \tau = 0 \\) (\\( K = I \\), one-center): since \\( j\_L(0) = \delta\_{L0} \\),
+  \\( \langle\phi\_a\vert V^{\mathrm{na}}\_I\vert\phi\_b\rangle = \delta\_{ll'}\delta\_{mm'}\int\_0^\infty dr\\, r^2 R\_a R\_b V^{\mathrm{na}}\_I \\).
+  The direction \\( \hat{\boldsymbol\tau} \\) is undefined, so this case is treated specially.
+- In the real spherical harmonics basis, the result is made real by the same transformation as in Section 4 of [Two-center integrals](two-center-overlap-kinetic.md).
+- It is exactly 0 for \\( \tau \ge r\_{c,I} + r\_{c,K} \\).
+- [Convention] The existing implementation tabulates \\( \tilde P^{ab}\_L \\) on the same Gauss–Legendre wavenumber grid as \\( \tilde V^{\mathrm{na}}\_K \\), and performs the \\( k \\) integral on the same grid.
 
-> **検算**：上の式は、Gauss 型の動径関数と解析的なモデル \\( V^{\mathrm{na}} \\)（下のテストの節）について、
-> \\( (l, l') \\) の 4 組で三次元格子上の直接積分と 6 桁以上一致します（`tools/check_neutral_atom.py` の (2)）。
+> **Check**: For Gaussian radial functions and an analytic model \\( V^{\mathrm{na}} \\) (see the test section below),
+> the formula above agrees with direct integration on a three-dimensional grid to 6 or more digits for 4 combinations of \\( (l, l') \\) (item (2) of `tools/check_neutral_atom.py`).
 
-## 5. 格子での評価（`scf.ProExpn.VNA off`）〔公開〕〔規約〕
+## 5. Evaluation on the grid (`scf.ProExpn.VNA off`) [Public] [Convention]
 
-〔公開〕マニュアル（8.2 節）によると、`scf.ProExpn.VNA` を off にすると、\\( V^{\mathrm{na}} \\) の行列要素を実空間格子上で計算します。
+[Public] According to the manual (Section 8.2), setting `scf.ProExpn.VNA` off computes the matrix elements of \\( V^{\mathrm{na}} \\) on the real-space grid.
 
-〔規約〕このとき \\( \sum\_K V^{\mathrm{na}}\_K(\lvert\mathbf r\_p - \mathbf R\_K\rvert) \\) を格子点上で作り、
-\\( \delta V\_H + v\_{\mathrm{xc},\sigma} \\) に加えた有効ポテンシャルとして [グリッド](grid-poisson-xc.md) の 5 節の方法で行列要素にします。
-`Una` は \\( \Delta V\sum\_p n(\mathbf r\_p) V^{\mathrm{na}}(\mathbf r\_p) \\) です（[全エネルギーと力](energy-force.md)）。
-既定の on のときは、\\( V^{\mathrm{na}} \\) を格子には載せません。
+[Convention] In this case, \\( \sum\_K V^{\mathrm{na}}\_K(\lvert\mathbf r\_p - \mathbf R\_K\rvert) \\) is built on the grid points,
+added to \\( \delta V\_H + v\_{\mathrm{xc},\sigma} \\) as an effective potential, and turned into matrix elements by the method of Section 5 of [Grid](grid-poisson-xc.md).
+`Una` is \\( \Delta V\sum\_p n(\mathbf r\_p) V^{\mathrm{na}}(\mathbf r\_p) \\) ([Total energy and forces](energy-force.md)).
+With the default on, \\( V^{\mathrm{na}} \\) is not put on the grid.
 
-TN15（Fig. 3、Table I）は、格子で評価する方法では格子に対する原子の位置によってエネルギーが振動し（egg-box 効果）、
-射影子展開でそれが大きく減ることを示しています。
+TN15 (Fig. 3, Table I) shows that with grid evaluation the energy oscillates depending on the position of the atoms relative to the grid (egg-box effect),
+and that the projector expansion reduces this substantially.
 
-## 6. 全エネルギーの分割での役割〔公開〕
+## 6. Role in the total-energy decomposition [Public]
 
-全エネルギーの分割の導出は [全エネルギーと力](energy-force.md) にあります。ここでは中性原子ポテンシャルに関わる点だけをまとめます（TN1 Eq. 18–23）。
+The derivation of the total-energy decomposition is in [Total energy and forces](energy-force.md). Here only the points relating to the neutral-atom potential are summarized (TN1 Eq. 18–23).
 
-- \\( E\_{\mathrm{na}} = \int n \sum\_K V^{\mathrm{na}}\_K \\) は、射影子展開のときは密度行列と 2–3 節の行列要素の積和（`Una`）です。
-- 静電エネルギーのうち長距離の部分は、差の密度 \\( \delta n = n - \sum\_I n^{a}\_I \\) とその Hartree ポテンシャル \\( \delta V\_H \\) の
-  \\( E\_{\delta\mathrm{ee}} = \frac12\int\delta n\\,\delta V\_H \\) だけに残り、これを FFT で解きます（[グリッド](grid-poisson-xc.md)）。
-  \\( n^{a}\_I \\) は 1.2 節で再規格化した同じ密度を使います。
-- イオン芯どうしの反発と原子密度どうしの Hartree 項は、遮蔽された短距離の対ポテンシャル
+- \\( E\_{\mathrm{na}} = \int n \sum\_K V^{\mathrm{na}}\_K \\) is, with the projector expansion, the sum of products of the density matrix and the matrix elements of Sections 2–3 (`Una`).
+- The long-range part of the electrostatic energy remains only in
+  \\( E\_{\delta\mathrm{ee}} = \frac12\int\delta n\\,\delta V\_H \\) of the difference density \\( \delta n = n - \sum\_I n^{a}\_I \\) and its Hartree potential \\( \delta V\_H \\), which is solved by FFT ([Grid](grid-poisson-xc.md)).
+  \\( n^{a}\_I \\) is the same density renormalized in Section 1.2.
+- The repulsion between ionic cores and the Hartree terms between atomic densities combine into the screened short-range pair potential
 
 $$
 E\_{\mathrm{scc}} = \frac12\sum\_{I,J}\left[\frac{Z\_I Z\_J}{\lVert\mathbf R\_I - \mathbf R\_J\rVert}(1 - \delta\_{IJ}) - \int d^3r\\, n^{a}\_I\\, V^{a}\_{H,J}\right]
 $$
 
-  にまとまります（TN1 Eq. 22。\\( J \\) は周期像を含み、\\( I = J \\) は同じ像の場合）。
-  各対の項は原子密度の台が重ならない距離で 0 です。既存実装での評価（`Ucore` と `UH0`、端点での規格化を含む）は
-  [全エネルギーと力](energy-force.md) の「遮蔽された原子間項」の節にあります。
+  (TN1 Eq. 22; \\( J \\) includes periodic images, and \\( I = J \\) means the same image).
+  Each pair term vanishes at distances where the supports of the atomic densities do not overlap. The evaluation in the existing implementation (`Ucore` and `UH0`, including normalization at the endpoint) is in
+  the "Screened interatomic term" section of [Total energy and forces](energy-force.md).
 
-〔設計〕球対称な 2 つの電荷の Coulomb 積分は、1 次元の積分
+[Design] The Coulomb integral of two spherically symmetric charges can also be computed as the one-dimensional integral
 
 $$
 \int d^3r\\, n^{a}\_I(\mathbf r)\\, V^{a}\_{H,J}(\mathbf r - \mathbf d) = \frac{2}{\pi}\int\_0^\infty dk\\, j\_0(kd)\\, N\_I(k) N\_J(k),\qquad
 N\_I(k) = 4\pi\int\_0^\infty dr\\, r^2 j\_0(kr)\\, n^{a}\_I(r)
 $$
 
-でも計算できます（\\( N\_I(0) = Z\_I \\) なので、遠方で \\( Z\_I Z\_J/d \\)）。距離の表を作る場合の代替として使えます。
-Gauss 型の電荷について解析解と \\( 10^{-14} \\) で一致することを確認しています（`tools/check_neutral_atom.py` の (1)）。
+(since \\( N\_I(0) = Z\_I \\), it tends to \\( Z\_I Z\_J/d \\) at large distance). It can be used as an alternative when building a distance table.
+Agreement with the analytic solution to \\( 10^{-14} \\) for Gaussian charges is confirmed (item (1) of `tools/check_neutral_atom.py`).
 
-## 7. 力〔公開〕〔規約〕
+## 7. Forces [Public] [Convention]
 
-全体の形（密度行列を固定した行列要素の微分と、エネルギー重み付き密度行列による Pulay の項）は
-[全エネルギーと力](energy-force.md) の「力」の節にあります（TN1 Eq. 59–61、75）。ここでは中性原子の行列要素の微分を与えます。
-\\( g\_s \\) と密度行列の記号は同章に従います。
+The overall form (derivatives of matrix elements at fixed density matrix, and the Pulay term with the energy-weighted density matrix) is in
+the "Forces" section of [Total energy and forces](energy-force.md) (TN1 Eq. 59–61, 75). Here the derivatives of the neutral-atom matrix elements are given.
+\\( g\_s \\) and the density-matrix symbols follow that chapter.
 
-### 7.1 射影子展開のブロック
+### 7.1 Projector-expansion blocks
 
-\\( A^{K}\_{I\alpha,p} = \langle \phi\_{I\alpha} \vert \beta^{K}\_p \rangle \\)（\\( p = (l\zeta m) \\)）は \\( \boldsymbol\tau\_{IK} \\) だけの関数なので、
+Since \\( A^{K}\_{I\alpha,p} = \langle \phi\_{I\alpha} \vert \beta^{K}\_p \rangle \\) (\\( p = (l\zeta m) \\)) is a function of \\( \boldsymbol\tau\_{IK} \\) only,
 
 $$
 \frac{\partial A^{K}\_{I\alpha,p}}{\partial \mathbf R\_K} = \nabla\_{\boldsymbol\tau} A^{K}\_{I\alpha,p}(\boldsymbol\tau\_{IK}),\qquad
 \frac{\partial A^{K}\_{I\alpha,p}}{\partial \mathbf R\_I} = -\nabla\_{\boldsymbol\tau} A^{K}\_{I\alpha,p}(\boldsymbol\tau\_{IK})
 $$
 
-です（\\( \nabla\_{\boldsymbol\tau} \\) は [二中心積分](two-center-overlap-kinetic.md) 6 節の解析微分。\\( K = I \\) のときは 2 つが打ち消して 0）。
-3.6 節の行列要素を \\( V = d\\, M \\)、\\( M = \sum\_K\sum\_p A^{K}\_{I\alpha,p} c\_p^{-1} A^{K}\_{J\beta,p} \\) と書くと、原子 \\( X \\) についての微分は
+(\\( \nabla\_{\boldsymbol\tau} \\) is the analytic derivative of Section 6 of [Two-center integrals](two-center-overlap-kinetic.md); when \\( K = I \\) the two cancel to 0).
+Writing the matrix element of Section 3.6 as \\( V = d\\, M \\), \\( M = \sum\_K\sum\_p A^{K}\_{I\alpha,p} c\_p^{-1} A^{K}\_{J\beta,p} \\), the derivative with respect to atom \\( X \\) is
 
 $$
 \frac{\partial V^{\mathrm{na}}\_{I\alpha,J\beta}}{\partial\mathbf R\_X}
@@ -377,111 +377,110 @@ $$
 {}+ M\\, d'(\tau\_{IJ})\\, \frac{\partial \tau\_{IJ}}{\partial \mathbf R\_X}
 $$
 
-です。\\( \tau\_{IJ} = \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \\)、\\( \partial\tau\_{IJ}/\partial\mathbf R\_J = \hat{\boldsymbol\tau}\_{IJ\mathbf L} = -\partial\tau\_{IJ}/\partial\mathbf R\_I \\)、
-\\( d'(R) = -30x^2(1+x)^2 \\)（\\( R\_c - 1 < R \le R\_c \\)、それ以外は 0）です。
-エネルギーへの寄与は、これに \\( g\_s\sum\_\sigma\rho^{\sigma}\_{I\alpha,J\beta}(\mathbf L) \\) を掛けた和です。
-〔規約〕既存実装は打ち切り因子の微分の項を含めます。
+Here \\( \tau\_{IJ} = \lVert\boldsymbol\tau\_{IJ\mathbf L}\rVert \\), \\( \partial\tau\_{IJ}/\partial\mathbf R\_J = \hat{\boldsymbol\tau}\_{IJ\mathbf L} = -\partial\tau\_{IJ}/\partial\mathbf R\_I \\), and
+\\( d'(R) = -30x^2(1+x)^2 \\) (for \\( R\_c - 1 < R \le R\_c \\); 0 otherwise).
+The contribution to the energy is the sum of this multiplied by \\( g\_s\sum\_\sigma\rho^{\sigma}\_{I\alpha,J\beta}(\mathbf L) \\).
+[Convention] The existing implementation includes the term with the derivative of the truncation factor.
 
-### 7.2 同じ原子上のブロック
+### 7.2 Blocks on the same atom
 
-\\( W^{IK}\_{\alpha\beta}(\boldsymbol\tau\_{IK}) = \langle \phi\_{I\alpha} \vert V^{\mathrm{na}}\_K \vert \phi\_{I\beta} \rangle \\)（4 節の式）は \\( \boldsymbol\tau\_{IK} \\) だけの関数です。
+\\( W^{IK}\_{\alpha\beta}(\boldsymbol\tau\_{IK}) = \langle \phi\_{I\alpha} \vert V^{\mathrm{na}}\_K \vert \phi\_{I\beta} \rangle \\) (the formula of Section 4) is a function of \\( \boldsymbol\tau\_{IK} \\) only.
 
 $$
 \frac{\partial W^{IK}}{\partial \mathbf R\_K} = \nabla\_{\boldsymbol\tau} W^{IK},\qquad
 \frac{\partial W^{IK}}{\partial \mathbf R\_I} = -\nabla\_{\boldsymbol\tau} W^{IK}\quad(K \ne I)
 $$
 
-で、\\( K = I \\) の項は配置によらない定数です。\\( \nabla\_{\boldsymbol\tau} \\) は 4 節の式の各項
-\\( f\_L(\tau) Y^{\ast}\_{LM}(\hat{\boldsymbol\tau}) \\)（\\( f\_L(\tau) = \int dk\\, k^2 j\_L(k\tau)\tilde P^{ab}\_L\tilde V^{\mathrm{na}}\_K \\)）に
-[二中心積分](two-center-overlap-kinetic.md) 6 節の勾配の公式をそのまま当てはめ、
-\\( f\_L'(\tau) = \int dk\\, k^3 j\_L'(k\tau)\tilde P^{ab}\_L\tilde V^{\mathrm{na}}\_K \\) を使います。
-〔規約〕既存実装もこの解析微分を使い、\\( \sin\theta \\) が小さいときは \\( \varphi \\) 方向の項を落とします。
+and the \\( K = I \\) term is a configuration-independent constant. For \\( \nabla\_{\boldsymbol\tau} \\), the gradient formula of Section 6 of [Two-center integrals](two-center-overlap-kinetic.md) is applied as is
+to each term \\( f\_L(\tau) Y^{\ast}\_{LM}(\hat{\boldsymbol\tau}) \\) of the Section 4 formula (\\( f\_L(\tau) = \int dk\\, k^2 j\_L(k\tau)\tilde P^{ab}\_L\tilde V^{\mathrm{na}}\_K \\)),
+using \\( f\_L'(\tau) = \int dk\\, k^3 j\_L'(k\tau)\tilde P^{ab}\_L\tilde V^{\mathrm{na}}\_K \\).
+[Convention] The existing implementation also uses this analytic derivative, and drops the \\( \varphi \\)-direction term when \\( \sin\theta \\) is small.
 
-これで [全エネルギーと力](energy-force.md) の〔未確定〕にある「射影子展開を使わない組み合わせの行列要素の微分」は、
-既定の `scf.ProExpn.VNA on` については上の式で定まります。
+With this, the "derivatives of matrix elements for combinations not using the projector expansion" listed under [Open] in [Total energy and forces](energy-force.md)
+are determined by the formulas above for the default `scf.ProExpn.VNA on`.
 
-### 7.3 その他
+### 7.3 Others
 
-- 格子で評価する場合（5 節）の力は [全エネルギーと力](energy-force.md) の格子上の項（第 4 項）です。
-- \\( E\_{\mathrm{scc}} \\) の力は [全エネルギーと力](energy-force.md) の「遮蔽された原子間項の微分」です。
-- 並進不変性から、各ブロックについて関係する原子の微分の和は 0 です（7.1 節では \\( X = I, J, K \\) の和、7.2 節では \\( X = I, K \\) の和）。
+- The force for grid evaluation (Section 5) is the grid term (fourth term) of [Total energy and forces](energy-force.md).
+- The force of \\( E\_{\mathrm{scc}} \\) is the "derivative of the screened interatomic term" in [Total energy and forces](energy-force.md).
+- By translational invariance, for each block the sum of the derivatives with respect to the atoms involved is 0 (sum over \\( X = I, J, K \\) in Section 7.1, over \\( X = I, K \\) in Section 7.2).
 
-## 8. 数値パラメータのまとめ〔規約〕
+## 8. Summary of numerical parameters [Convention]
 
-| 項目 | 値 |
+| Item | Value |
 |---|---|
-| \\( V^{\mathrm{na}} \\) の打ち切り | \\( r\_c \\)（`radial.cutoff.pao`）で 0。Fermi 型因子の急峻さ 20 bohr⁻¹ |
-| 漸近形の補正 | \\( r\_c \\) に最も近い VPS 格子点で \\( V^{\mathrm{loc}} + sV^{a}\_H = 0 \\) |
-| 射影子展開 | \\( L\_{\max} = \max(l\_{\mathrm{basis}}) + 6 \\)、\\( N\_{\mathrm{rad}} = 12 \\)（`scf.BufferL.VNA`、`scf.RadialF.VNA`） |
-| 直交化の動径積分 | VPS 格子の全範囲、Gauss–Legendre 300 点 |
-| 小さい \\( c \\) の切り捨て | \\( \lvert c\rvert < 10^{-15} \\) |
-| 球 Bessel 変換 | 実空間 \\( r \le r\_c + 0.5 \\) bohr、波数 \\( [10^{-6}, \sqrt{E\_{\mathrm{1DFFT}}}] \\) を Gauss–Legendre 300 点 |
-| 打ち切り因子 | \\( C^2 \\) の 5 次多項式、バッファ 1 bohr、\\( R\_c = r\_{c,I} + r\_{c,J} \\) |
+| Truncation of \\( V^{\mathrm{na}} \\) | 0 at \\( r\_c \\) (`radial.cutoff.pao`). Steepness of the Fermi-type factor 20 bohr⁻¹ |
+| Asymptotic correction | \\( V^{\mathrm{loc}} + sV^{a}\_H = 0 \\) at the VPS grid point closest to \\( r\_c \\) |
+| Projector expansion | \\( L\_{\max} = \max(l\_{\mathrm{basis}}) + 6 \\), \\( N\_{\mathrm{rad}} = 12 \\) (`scf.BufferL.VNA`, `scf.RadialF.VNA`) |
+| Radial integrals for orthogonalization | Full range of the VPS grid, 300 Gauss–Legendre points |
+| Discarding small \\( c \\) | \\( \lvert c\rvert < 10^{-15} \\) |
+| Spherical Bessel transform | Real space \\( r \le r\_c + 0.5 \\) bohr; wavenumbers \\( [10^{-6}, \sqrt{E\_{\mathrm{1DFFT}}}] \\) with 300 Gauss–Legendre points |
+| Truncation factor | \\( C^2 \\) quintic polynomial, buffer 1 bohr, \\( R\_c = r\_{c,I} + r\_{c,J} \\) |
 
-## テスト
+## Tests
 
-### 解析的なモデル〔設計〕
+### Analytic model [Design]
 
-Gauss 型の原子密度と、誤差関数型の局所ポテンシャル
+From a Gaussian atomic density and an error-function local potential,
 
 $$
 n^{a}(r) = Z\left(\frac{\alpha}{\pi}\right)^{3/2} e^{-\alpha r^2},\qquad
 V^{\mathrm{loc}}(r) = -Z\frac{\mathrm{erf}(\sqrt{\beta}\\,r)}{r}\quad(\beta > \alpha)
 $$
 
-から \\( V^{\mathrm{na}}(r) = Z\\,[\mathrm{erf}(\sqrt\alpha\\, r) - \mathrm{erf}(\sqrt\beta\\, r)]/r \\) が得られます。
-有限の台は持ちませんが、Gauss 型で減衰するので、1.3 節の打ち切りを除く部分の検査に使えます。
+one obtains \\( V^{\mathrm{na}}(r) = Z\\,[\mathrm{erf}(\sqrt\alpha\\, r) - \mathrm{erf}(\sqrt\beta\\, r)]/r \\).
+It does not have finite support, but since it decays like a Gaussian, it can be used to test everything except the truncation of Section 1.3.
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Tolerance (guideline) |
 |---|---|---|
-| 解析 | 1.1 節の動径積分による \\( V^{a}\_H \\) とモデルの \\( Z\\,\mathrm{erf}(\sqrt\alpha r)/r \\) | \\( 10^{-10} \\) |
-| 解析 | 6 節の球対称電荷の Coulomb 積分と \\( Z\_1 Z\_2\\,\mathrm{erf}(\sqrt{\mu}d)/d \\)（\\( \mu = a\_1 a\_2/(a\_1+a\_2) \\)） | \\( 10^{-12} \\) |
-| 解析 | 4 節の式と三次元格子上の直接積分（Gauss 型の \\( R\_a, R\_b \\)、\\( l, l' \le 2 \\)） | \\( 10^{-6} \\)（格子の精度で決まる） |
-| 解析 | 4 節の式の \\( \tau \to 0 \\) の極限と \\( \int r^2 R\_a R\_b V^{\mathrm{na}} \\) | \\( 10^{-10} \\) |
-| 解析 | 打ち切り因子：\\( x = -1, 0 \\) での値・1 階・2 階微分 | 丸め誤差 |
+| Analytic | \\( V^{a}\_H \\) from the radial integral of Section 1.1 vs. the model \\( Z\\,\mathrm{erf}(\sqrt\alpha r)/r \\) | \\( 10^{-10} \\) |
+| Analytic | Coulomb integral of spherical charges in Section 6 vs. \\( Z\_1 Z\_2\\,\mathrm{erf}(\sqrt{\mu}d)/d \\) (\\( \mu = a\_1 a\_2/(a\_1+a\_2) \\)) | \\( 10^{-12} \\) |
+| Analytic | Formula of Section 4 vs. direct integration on a three-dimensional grid (Gaussian \\( R\_a, R\_b \\), \\( l, l' \le 2 \\)) | \\( 10^{-6} \\) (determined by grid accuracy) |
+| Analytic | \\( \tau \to 0 \\) limit of the Section 4 formula vs. \\( \int r^2 R\_a R\_b V^{\mathrm{na}} \\) | \\( 10^{-10} \\) |
+| Analytic | Truncation factor: value, first and second derivatives at \\( x = -1, 0 \\) | rounding error |
 
-### 射影子展開〔設計〕
+### Projector expansion [Design]
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Tolerance (guideline) |
 |---|---|---|
-| 不変量 | \\( (\bar R\_{l\zeta}, \bar R\_{l\zeta'})\_V = \delta\_{\zeta\zeta'} c\_{l\zeta} \\) | \\( 10^{-12} \\)（相対） |
-| 不変量 | 種の関数 \\( \chi \\) について \\( \hat V^{\mathrm{na}}\chi = V^{\mathrm{na}}\chi \\)：動径の内積 \\( \sum\_\zeta (\bar R\_\zeta, \chi)\_V (\bar R\_\zeta, g)\_V / c\_\zeta = (\chi, g)\_V \\) を任意の \\( g \\) で | \\( 10^{-10} \\)（相対） |
-| 不変量 | 二中心（\\( K = I \\)）の展開の値と、直接の三次元積分 | 格子の精度。`tools/check_neutral_atom.py` の (3) では 6 桁 |
-| 収束 | 三中心の値が \\( L\_{\max} \\)、\\( N\_{\mathrm{rad}} \\) とともに直接積分に近づく | 傾向を確認（下の例） |
-| 不変量 | 行列要素の対称性 \\( V^{\mathrm{na}}\_{I\alpha,J\beta}(\mathbf L) = V^{\mathrm{na}}\_{J\beta,I\alpha}(-\mathbf L) \\) | 丸め誤差 |
-| 不変量 | 構造の回転で行列が実球面調和関数の回転行列で変換される | \\( 10^{-10} \\) |
-| 不変量 | 原子対の範囲の端（\\( \tau = r\_{c,I} + r\_{c,J} \\)）で異なる原子のブロックが 0、その内側 1 bohr で滑らか | 厳密 |
+| Invariant | \\( (\bar R\_{l\zeta}, \bar R\_{l\zeta'})\_V = \delta\_{\zeta\zeta'} c\_{l\zeta} \\) | \\( 10^{-12} \\) (relative) |
+| Invariant | \\( \hat V^{\mathrm{na}}\chi = V^{\mathrm{na}}\chi \\) for seed functions \\( \chi \\): radial inner products \\( \sum\_\zeta (\bar R\_\zeta, \chi)\_V (\bar R\_\zeta, g)\_V / c\_\zeta = (\chi, g)\_V \\) for arbitrary \\( g \\) | \\( 10^{-10} \\) (relative) |
+| Invariant | Two-center (\\( K = I \\)) expansion value vs. direct three-dimensional integration | grid accuracy; 6 digits in item (3) of `tools/check_neutral_atom.py` |
+| Convergence | Three-center values approach direct integration as \\( L\_{\max} \\), \\( N\_{\mathrm{rad}} \\) increase | trend check (example below) |
+| Invariant | Matrix-element symmetry \\( V^{\mathrm{na}}\_{I\alpha,J\beta}(\mathbf L) = V^{\mathrm{na}}\_{J\beta,I\alpha}(-\mathbf L) \\) | rounding error |
+| Invariant | Under rotation of the structure, the matrix transforms by the rotation matrices of real spherical harmonics | \\( 10^{-10} \\) |
+| Invariant | At the edge of the atom-pair range (\\( \tau = r\_{c,I} + r\_{c,J} \\)), blocks between different atoms are 0, and smooth within 1 bohr inside | exact |
 
-収束の例（`tools/check_neutral_atom.py` の (3)。s 型と p 型の Gauss 関数、\\( V^{\mathrm{na}} \\) は第 3 の中心）：
-\\( N\_{\mathrm{rad}} = 4 \\) で \\( L\_{\max} = 0, 2, 4, 6 \\) のとき、直接積分との相対誤差はおよそ
-\\( 6\times10^{-2} \\)、\\( 6\times10^{-3} \\)、\\( 2\times10^{-4} \\)、\\( 1\times10^{-5} \\) です。
-\\( N\_{\mathrm{rad}} \\) を 2 から 6 に増やす効果は \\( 10^{-3} \\) 程度で、\\( L\_{\max} \\) の効果の方が大きいことは TN15 Fig. 2 の傾向と合います。
+Convergence example (item (3) of `tools/check_neutral_atom.py`; s- and p-type Gaussian functions, \\( V^{\mathrm{na}} \\) on a third center):
+with \\( N\_{\mathrm{rad}} = 4 \\) and \\( L\_{\max} = 0, 2, 4, 6 \\), the relative errors with respect to direct integration are approximately
+\\( 6\times10^{-2} \\), \\( 6\times10^{-3} \\), \\( 2\times10^{-4} \\), \\( 1\times10^{-5} \\).
+The effect of increasing \\( N\_{\mathrm{rad}} \\) from 2 to 6 is of order \\( 10^{-3} \\); that the effect of \\( L\_{\max} \\) is larger agrees with the trend of TN15 Fig. 2.
 
-### 実際のデータでの検査〔設計〕
+### Tests on actual data [Design]
 
-| 種類 | 内容 | 許容誤差の目安 |
+| Kind | Content | Tolerance (guideline) |
 |---|---|---|
-| 不変量 | 再規格化後の \\( 4\pi\int r^2 n^{a} = Z \\) | \\( 10^{-10} \\) |
-| 不変量 | 1.3 節の \\( s \\) が 1 に近い（C、O、H、Fe などの配布ファイル） | \\( \lvert s-1\rvert < 10^{-3} \\) |
-| 不変量 | \\( r\_c \\) の内側 1 bohr で \\( \lvert V^{\mathrm{loc}} + sV^{a}\_H\rvert \\) が小さい | \\( 10^{-3} \\) Hartree |
-| 有限差分 | \\( \rho \\) を固定した `Una` の原子変位による中心差分と、7 節の解析的な力（打ち切り因子の微分を含む） | \\( 10^{-7} \\) Hartree/bohr |
-| 有限差分 | 原子対の範囲の端をまたぐ変位でも上の一致が保たれる | 同上 |
-| 不変量 | `Una` の力の寄与の総和が 0 | \\( 10^{-10} \\) |
+| Invariant | \\( 4\pi\int r^2 n^{a} = Z \\) after renormalization | \\( 10^{-10} \\) |
+| Invariant | \\( s \\) of Section 1.3 is close to 1 (distributed files for C, O, H, Fe, etc.) | \\( \lvert s-1\rvert < 10^{-3} \\) |
+| Invariant | \\( \lvert V^{\mathrm{loc}} + sV^{a}\_H\rvert \\) is small within 1 bohr inside \\( r\_c \\) | \\( 10^{-3} \\) Hartree |
+| Finite difference | Central differences of `Una` at fixed \\( \rho \\) under atomic displacements vs. the analytic forces of Section 7 (including the derivative of the truncation factor) | \\( 10^{-7} \\) Hartree/bohr |
+| Finite difference | The above agreement holds also for displacements crossing the edge of the atom-pair range | same as above |
+| Invariant | The force contributions of `Una` sum to 0 | \\( 10^{-10} \\) |
 
-### fixture との照合〔設計〕
+### Comparison with fixtures [Design]
 
-- 既存実装の \\( V^{\mathrm{na}}\_I(r) \\)、\\( \bar R\_{l\zeta} \\)、\\( c\_{l\zeta} \\)（種ごと）を書き出して比べます。
-  \\( \bar R \\) は規格化の取り方が実装で異なりうるので、\\( \beta\beta/c \\) の組み合わせ（例：動径の核 \\( \sum\_\zeta V\bar R\_\zeta(r)V\bar R\_\zeta(r')/c\_\zeta \\)）で比べます。
-- 行列要素：H₂O 分子（`H6.0-s1p1`、`O6.0-s1p1` など）と Si 結晶で、同じ原子上のブロックと異なる原子のブロックの \\( V^{\mathrm{na}} \\) を比べます。
-- エネルギー：`Una`（`scf.ProExpn.VNA` の on と off の両方）。
-- 許容誤差：\\( V^{\mathrm{na}}(r) \\) は \\( 10^{-8} \\) Hartree、行列要素は \\( 10^{-7} \\) Hartree、`Una` は \\( 10^{-6} \\) Hartree を目安とします
-  （同じ \\( L\_{\max} \\)、\\( N\_{\mathrm{rad}} \\)、同じ波数格子のとき）。
+- Dump and compare \\( V^{\mathrm{na}}\_I(r) \\), \\( \bar R\_{l\zeta} \\), \\( c\_{l\zeta} \\) (per species) of the existing implementation.
+  Since the normalization of \\( \bar R \\) may differ between implementations, compare the combination \\( \beta\beta/c \\) (e.g. the radial kernel \\( \sum\_\zeta V\bar R\_\zeta(r)V\bar R\_\zeta(r')/c\_\zeta \\)).
+- Matrix elements: compare \\( V^{\mathrm{na}} \\) for same-atom blocks and different-atom blocks in the H₂O molecule (`H6.0-s1p1`, `O6.0-s1p1`, etc.) and Si crystal.
+- Energy: `Una` (both `scf.ProExpn.VNA` on and off).
+- Tolerances: \\( 10^{-8} \\) Hartree for \\( V^{\mathrm{na}}(r) \\), \\( 10^{-7} \\) Hartree for matrix elements, and \\( 10^{-6} \\) Hartree for `Una` as guidelines
+  (with the same \\( L\_{\max} \\), \\( N\_{\mathrm{rad}} \\), and the same wavenumber grid).
 
-## 〔未確定〕
+## [Open]
 
-- 1.3 節の \\( V^{a}\_H \\) の数値積分と、1.4 節・3.5 節の球 Bessel 変換の求積の細部（既存実装はそれぞれ専用の求積を使う）。
-  結果を許容誤差の範囲で変えるだけと考えていますが、fixture との照合で確かめるまでは確定しません。
-- 4 節の \\( \tilde P^{ab}\_L \\) を、選んだ基底関数の組ごとに作るか、PAO ファイルの全動径関数について作るか（結果は同じで、効率だけの問題）。
-- 軌道最適化（縮約）を使う計算で、縮約後の基底関数が展開の空間に入る条件（縮約に使う原始関数の数が \\( N\_{\mathrm{rad}} \\) 以下であること）が常に満たされるか。
-- 非共線スピン・スピン軌道相互作用での扱い（\\( V^{\mathrm{na}} \\) はスピンによらないので、スピンの対角成分に同じものを加えるだけと考えていますが未確認）。
-- 応力への寄与（[全エネルギーと力](energy-force.md) の応力の節に、射影子展開の項は二中心の因子ごとに扱うとあるが、打ち切り因子 \\( d \\) と 4 節の直接計算の項の扱いは未確認）。
+- Details of the numerical integration of \\( V^{a}\_H \\) in Section 1.3 and the quadrature of the spherical Bessel transforms in Sections 1.4 and 3.5 (the existing implementation uses a dedicated quadrature for each).
+  We expect them to change results only within tolerance, but this is not settled until confirmed by comparison with fixtures.
+- Whether \\( \tilde P^{ab}\_L \\) of Section 4 is built for each combination of selected basis functions or for all radial functions of the PAO file (the result is the same; only efficiency is affected).
+- Whether, in calculations using orbital optimization (contraction), the condition for the contracted basis functions to lie in the expansion space (the number of primitive functions used in the contraction is at most \\( N\_{\mathrm{rad}} \\)) is always satisfied.
+- Treatment with noncollinear spin and spin-orbit coupling (since \\( V^{\mathrm{na}} \\) is spin-independent, we expect that the same term is simply added to the spin-diagonal components, but this is unconfirmed).
+- Contribution to the stress (the stress section of [Total energy and forces](energy-force.md) states that projector-expansion terms are handled per two-center factor, but the treatment of the truncation factor \\( d \\) and of the direct-computation terms of Section 4 is unconfirmed).
