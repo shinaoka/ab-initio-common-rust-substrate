@@ -5,7 +5,7 @@ This part specifies an electronic-structure method in the style of
 norm-conserving pseudopotentials (VPS), and real-space grids for the density.
 The aim is a specification precise enough to **reimplement the method without reading the OpenMX source code**.
 
-The implementation will not be called "OpenMX" and is not an official successor of OpenMX.
+The implementation is called sphaira-rs, not "OpenMX", and is not an official successor of OpenMX.
 
 ## Goals
 

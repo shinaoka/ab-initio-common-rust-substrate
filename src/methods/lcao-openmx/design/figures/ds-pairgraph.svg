@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="760" height="400" fill="#ffffff"/>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#555"/></marker></defs>
+  <text x="380" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">PairGraph (replicated) and BlockMatrix values (distributed by row atom)</text>
+
+  <!-- left: atoms with cutoff -->
+  <text x="40" y="58" font-weight="bold" fill="#333">1. Atoms and cutoff spheres</text>
+  <g fill="none" stroke="#9fb3c8" stroke-dasharray="4 3">
+    <circle cx="110" cy="160" r="62"/>
+    <circle cx="170" cy="130" r="48"/>
+    <circle cx="200" cy="205" r="62"/>
+  </g>
+  <g>
+    <circle cx="110" cy="160" r="9" fill="#3b7dd8"/>
+    <circle cx="170" cy="130" r="9" fill="#3b7dd8"/>
+    <circle cx="200" cy="205" r="9" fill="#e08a2c"/>
+  </g>
+  <g font-weight="bold" fill="#222">
+    <text x="88" y="164">0</text><text x="182" y="124">1</text><text x="214" y="210">2</text>
+  </g>
+  <text x="40" y="290" fill="#444">Pair (I, J, n) exists when the</text>
+  <text x="40" y="306" fill="#444">spheres of I and of J shifted</text>
+  <text x="40" y="322" fill="#444">by lattice vector n overlap.</text>
+  <text x="40" y="346" fill="#444">Blue atoms: rank 0, orange: rank 1.</text>
+
+  <!-- middle: CSR -->
+  <text x="290" y="58" font-weight="bold" fill="#333">2. CSR by row atom, sorted by (J, n)</text>
+  <g font-family="Menlo, monospace" font-size="12" fill="#222">
+    <text x="290" y="84">row_ptr = [0, 3, 6, 9]</text>
+  </g>
+  <g stroke="#8a93a0">
+    <rect x="290" y="96" width="210" height="72" fill="#e3effb"/>
+    <rect x="290" y="168" width="210" height="72" fill="#e3effb"/>
+    <rect x="290" y="240" width="210" height="72" fill="#fdeedd"/>
+  </g>
+  <g font-family="Menlo, monospace" font-size="12" fill="#222">
+    <text x="298" y="114">p0 (0,0,000)  T=p0</text>
+    <text x="298" y="136">p1 (0,1,000)  T=p3</text>
+    <text x="298" y="158">p2 (0,2,000)  T=p6</text>
+    <text x="298" y="186">p3 (1,0,000)  T=p1</text>
+    <text x="298" y="208">p4 (1,1,000)  T=p4</text>
+    <text x="298" y="230">p5 (1,2,000)  T=p7</text>
+    <text x="298" y="258">p6 (2,0,000)  T=p2</text>
+    <text x="298" y="280">p7 (2,1,000)  T=p5</text>
+    <text x="298" y="302">p8 (2,2,000)  T=p8</text>
+  </g>
+  <text x="290" y="334" fill="#444">T = pair_transpose: the pair (J, I, -n).</text>
+  <text x="290" y="352" fill="#444">PairIds are the same on every rank.</text>
+
+  <!-- arrows -->
+  <path d="M505 160 L560 130" stroke="#555" stroke-width="1.5" marker-end="url(#a)"/>
+  <path d="M505 276 L560 300" stroke="#555" stroke-width="1.5" marker-end="url(#a)"/>
+
+  <!-- right: values -->
+  <text x="560" y="58" font-weight="bold" fill="#333">3. Values per rank</text>
+  <text x="560" y="84" fill="#1f5fae" font-weight="bold">rank 0: rows 0, 1</text>
+  <g stroke="#3b7dd8" fill="#cfe2f8">
+    <rect x="560" y="94" width="30" height="30"/><rect x="590" y="94" width="30" height="30"/><rect x="620" y="94" width="30" height="30"/>
+    <rect x="650" y="94" width="30" height="30"/><rect x="680" y="94" width="30" height="30"/><rect x="710" y="94" width="30" height="30"/>
+  </g>
+  <g font-size="11" text-anchor="middle" fill="#222">
+    <text x="575" y="113">p0</text><text x="605" y="113">p1</text><text x="635" y="113">p2</text>
+    <text x="665" y="113">p3</text><text x="695" y="113">p4</text><text x="725" y="113">p5</text>
+  </g>
+  <text x="560" y="146" fill="#444" font-size="12">one dense n_I x n_J block per pair,</text>
+  <text x="560" y="162" fill="#444" font-size="12">column-major, packed back to back;</text>
+  <text x="560" y="178" fill="#444" font-size="12">one array per spin</text>
+
+  <text x="560" y="272" fill="#b0631a" font-weight="bold">rank 1: row 2</text>
+  <g stroke="#e08a2c" fill="#fbdcb9">
+    <rect x="560" y="282" width="30" height="30"/><rect x="590" y="282" width="30" height="30"/><rect x="620" y="282" width="30" height="30"/>
+  </g>
+  <g font-size="11" text-anchor="middle" fill="#222">
+    <text x="575" y="301">p6</text><text x="605" y="301">p7</text><text x="635" y="301">p8</text>
+  </g>
+  <text x="560" y="336" fill="#444" font-size="12">Both (I,J,n) and (J,I,-n) are stored,</text>
+  <text x="560" y="352" fill="#444" font-size="12">so each row owner builds its blocks</text>
+  <text x="560" y="368" fill="#444" font-size="12">without communication.</text>
+</svg>

@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="760" height="400" fill="#ffffff"/>
+  <defs>
+    <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#3b7dd8"/></marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#c0392b"/></marker>
+    <pattern id="g" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8" cy="8" r="1.3" fill="#9aa3ad"/></pattern>
+  </defs>
+  <text x="380" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">AtomSpheres: the bridge between atoms (rows) and the grid (pencils)</text>
+
+  <!-- grid split into 3 pencils (slabs in this 2D sketch) -->
+  <rect x="30" y="50" width="140" height="300" fill="#e3effb"/>
+  <rect x="170" y="50" width="140" height="300" fill="#fdeedd"/>
+  <rect x="310" y="50" width="140" height="300" fill="#e2f4e6"/>
+  <rect x="30" y="50" width="420" height="300" fill="url(#g)" stroke="#8a93a0"/>
+  <g font-weight="bold" font-size="12">
+    <text x="40" y="342" fill="#1f5fae">grid of rank 0</text>
+    <text x="180" y="342" fill="#b0631a">grid of rank 1</text>
+    <text x="320" y="342" fill="#2a7a3e">grid of rank 2</text>
+  </g>
+
+  <!-- atom I owned by rank 0, sphere crosses into rank 1 grid -->
+  <circle cx="150" cy="170" r="80" fill="#3b7dd8" fill-opacity="0.12" stroke="#3b7dd8" stroke-width="2"/>
+  <circle cx="150" cy="170" r="8" fill="#3b7dd8"/>
+  <text x="120" y="150" font-weight="bold" fill="#1f5fae">I</text>
+  <text x="70" y="268" fill="#1f5fae" font-size="12">sphere of atom I</text>
+  <text x="70" y="284" fill="#1f5fae" font-size="12">(I owned by rank 0)</text>
+
+  <!-- atom J (column atom) -->
+  <circle cx="240" cy="200" r="60" fill="none" stroke="#e08a2c" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <circle cx="240" cy="200" r="7" fill="#e08a2c"/>
+  <text x="252" y="196" font-weight="bold" fill="#b0631a">J</text>
+
+  <!-- arrows gather / scatter between rank1 grid and sphere -->
+  <path d="M290 110 C 250 100, 225 120, 215 140" stroke="#3b7dd8" stroke-width="2" fill="none" marker-end="url(#b)"/>
+  <path d="M205 225 C 230 280, 270 285, 295 280" stroke="#c0392b" stroke-width="2" fill="none" marker-end="url(#o)"/>
+
+  <!-- explanation -->
+  <g fill="#222">
+    <text x="480" y="66" font-weight="bold">What rank 0 stores for atom I</text>
+    <text x="480" y="88">point_grid[q]: grid point in the unit cell</text>
+    <text x="480" y="106">point_disp[q]: r_q - R_I (unfolded)</text>
+    <text x="480" y="124">phi_I(r_q): cached orbital values</text>
+
+    <text x="480" y="158" font-weight="bold" fill="#1f5fae">SphereGather (blue)</text>
+    <text x="480" y="176">potential values on sphere points</text>
+    <text x="480" y="194">owned by other ranks are fetched</text>
+    <text x="480" y="212">-> matrix elements &lt;phi_I | V | phi_J&gt;</text>
+
+    <text x="480" y="246" font-weight="bold" fill="#c0392b">SphereScatterAdd (red)</text>
+    <text x="480" y="264">density contributions of pairs (I, J, n)</text>
+    <text x="480" y="282">are sent back and added by the grid owner</text>
+
+    <text x="480" y="316" font-weight="bold">Column atom J</text>
+    <text x="480" y="334">phi_J on sphere I is computed on the fly</text>
+    <text x="480" y="352">from replicated radial tables: no communication</text>
+  </g>
+  <text x="30" y="380" fill="#444" font-size="12">Both plans are one fixed send/receive list (alltoallv), built once per structure and reused every SCF iteration.</text>
+</svg>

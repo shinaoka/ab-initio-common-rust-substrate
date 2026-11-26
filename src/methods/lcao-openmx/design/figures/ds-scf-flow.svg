@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="470" viewBox="0 0 760 470" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="760" height="470" fill="#ffffff"/>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#444"/></marker></defs>
+  <text x="380" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">One SCF iteration: three kinds of owners</text>
+
+  <!-- lanes -->
+  <rect x="20" y="44" width="720" height="118" fill="#f3f7fc" stroke="#c9d6e6"/>
+  <rect x="20" y="162" width="720" height="118" fill="#fbf6ef" stroke="#eadbc6"/>
+  <rect x="20" y="280" width="720" height="118" fill="#f2f9f3" stroke="#cfe6d4"/>
+  <g font-weight="bold" fill="#333">
+    <text x="30" y="64">Grid owners</text>
+    <text x="30" y="182">Row-atom owners</text>
+    <text x="30" y="300">k-task owners</text>
+  </g>
+  <g font-size="11" fill="#666">
+    <text x="30" y="80">(GridPartition)</text>
+    <text x="30" y="198">(AtomPartition)</text>
+    <text x="30" y="316">(KTaskPartition)</text>
+  </g>
+
+  <!-- boxes -->
+  <g fill="#ffffff" stroke="#666">
+    <rect x="140" y="90" width="120" height="50" rx="6"/>
+    <rect x="300" y="90" width="120" height="50" rx="6"/>
+    <rect x="300" y="208" width="120" height="50" rx="6"/>
+    <rect x="460" y="326" width="120" height="50" rx="6"/>
+    <rect x="610" y="208" width="120" height="50" rx="6"/>
+    <rect x="610" y="90" width="120" height="50" rx="6"/>
+    <rect x="460" y="90" width="120" height="50" rx="6"/>
+  </g>
+  <g text-anchor="middle" fill="#222">
+    <text x="200" y="111">n_in(r)</text><text x="200" y="128" font-size="11">input density</text>
+    <text x="360" y="111">dV_H, V_xc</text><text x="360" y="128" font-size="11">Poisson (FFT), XC</text>
+    <text x="360" y="229">H = H0 + H_grid</text><text x="360" y="246" font-size="11">rows of owned atoms</text>
+    <text x="520" y="347">H(k), S(k)</text><text x="520" y="364" font-size="11">eigenproblem, mu, f</text>
+    <text x="670" y="229">rho(L)</text><text x="670" y="246" font-size="11">density matrix</text>
+    <text x="670" y="111">n_out(r)</text><text x="670" y="128" font-size="11">output density</text>
+    <text x="520" y="111">mixing</text><text x="520" y="128" font-size="11">next n_in</text>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#444" stroke-width="1.6" fill="none" marker-end="url(#a)">
+    <path d="M260 115 L298 115"/>
+    <path d="M360 140 L360 206"/>
+    <path d="M420 245 C 470 260, 480 290, 500 324"/>
+    <path d="M580 340 C 620 320, 650 290, 662 260"/>
+    <path d="M670 208 L670 142"/>
+    <path d="M610 115 L582 115"/>
+    <path d="M460 104 C 400 70, 260 60, 210 88"/>
+  </g>
+  <g font-size="11" fill="#1f5fae">
+    <text x="366" y="176">SphereGather</text>
+    <text x="440" y="300">BlockAllgather</text>
+    <text x="596" y="300">BlockReduceScatter</text>
+    <text x="664" y="178" text-anchor="end">SphereScatterAdd</text>
+  </g>
+  <text x="140" y="62" font-size="11" fill="#444">Mixed quantity depends on the method: n(G) for Kerker and RMM-DIISK; rho(L), or H(L) in its first stage, for RMM-DIIS</text>
+
+  <text x="30" y="424" fill="#444">Blue labels are the only communication steps. Everything inside a box is local work on owned items.</text>
+  <text x="30" y="444" fill="#444">Scalars (energies, mu, residual norms) are reduced in a fixed order, so a fixed rank count gives bitwise-equal runs.</text>
+</svg>

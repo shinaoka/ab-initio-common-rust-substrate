@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="420" viewBox="0 0 760 420" font-family="Helvetica, Arial, sans-serif" font-size="13">
+  <rect width="760" height="420" fill="#ffffff"/>
+  <text x="380" y="26" text-anchor="middle" font-size="16" font-weight="bold" fill="#222">Every rank holds the same structure, and only its own share of the values</text>
+
+  <!-- replicated band -->
+  <rect x="20" y="44" width="720" height="120" rx="8" fill="#eef0f3" stroke="#8a93a0"/>
+  <text x="32" y="64" font-weight="bold" fill="#333">Replicated (identical on every rank, built from the input by the same rule)</text>
+  <g fill="#ffffff" stroke="#8a93a0">
+    <rect x="36" y="78" width="128" height="34" rx="4"/>
+    <rect x="176" y="78" width="128" height="34" rx="4"/>
+    <rect x="316" y="78" width="128" height="34" rx="4"/>
+    <rect x="456" y="78" width="128" height="34" rx="4"/>
+    <rect x="596" y="78" width="128" height="34" rx="4"/>
+    <rect x="106" y="120" width="128" height="34" rx="4"/>
+    <rect x="246" y="120" width="128" height="34" rx="4"/>
+    <rect x="386" y="120" width="128" height="34" rx="4"/>
+    <rect x="526" y="120" width="128" height="34" rx="4"/>
+  </g>
+  <g text-anchor="middle" fill="#222">
+    <text x="100" y="100">SpeciesData</text>
+    <text x="240" y="100">Structure</text>
+    <text x="380" y="100">OrbitalLayout</text>
+    <text x="520" y="100">PairGraph</text>
+    <text x="660" y="100">GridSpec</text>
+    <text x="170" y="142">KMesh</text>
+    <text x="310" y="142">AtomPartition</text>
+    <text x="450" y="142">GridPartition</text>
+    <text x="590" y="142">KTaskPartition</text>
+  </g>
+
+  <!-- arrow -->
+  <path d="M380 168 L380 192" stroke="#555" stroke-width="2" marker-end="url(#a)"/>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#555"/></marker></defs>
+  <text x="390" y="186" fill="#555">partitions say who owns which item</text>
+
+  <!-- ranks -->
+  <g>
+    <rect x="20" y="198" width="230" height="150" rx="8" fill="#e3effb" stroke="#3b7dd8"/>
+    <rect x="265" y="198" width="230" height="150" rx="8" fill="#fdeedd" stroke="#e08a2c"/>
+    <rect x="510" y="198" width="230" height="150" rx="8" fill="#e2f4e6" stroke="#3a9a52"/>
+  </g>
+  <g font-weight="bold">
+    <text x="32" y="218" fill="#1f5fae">rank 0</text>
+    <text x="277" y="218" fill="#b0631a">rank 1</text>
+    <text x="522" y="218" fill="#2a7a3e">rank 2</text>
+  </g>
+  <g fill="#222">
+    <text x="32" y="244">BlockMatrix: rows of atoms 0-2</text>
+    <text x="32" y="266">GridField: pencil 0</text>
+    <text x="32" y="288">AtomSpheres: atoms 0-2</text>
+    <text x="32" y="310">EigenSet: k-tasks 0, 3</text>
+    <text x="32" y="332">Mixing history (local part)</text>
+
+    <text x="277" y="244">BlockMatrix: rows of atoms 3-4</text>
+    <text x="277" y="266">GridField: pencil 1</text>
+    <text x="277" y="288">AtomSpheres: atoms 3-4</text>
+    <text x="277" y="310">EigenSet: k-tasks 1, 4</text>
+    <text x="277" y="332">Mixing history (local part)</text>
+
+    <text x="522" y="244">BlockMatrix: rows of atoms 5-7</text>
+    <text x="522" y="266">GridField: pencil 2</text>
+    <text x="522" y="288">AtomSpheres: atoms 5-7</text>
+    <text x="522" y="310">EigenSet: k-task 2</text>
+    <text x="522" y="332">Mixing history (local part)</text>
+  </g>
+  <text x="380" y="372" text-anchor="middle" fill="#444">Distributed: each rank stores only the items it owns.</text>
+  <text x="380" y="390" text-anchor="middle" fill="#444">A serial run is the same code with one rank.</text>
+</svg>

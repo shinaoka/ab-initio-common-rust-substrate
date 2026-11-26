@@ -23,6 +23,8 @@
 - [Module structure and data flow](methods/lcao-openmx/design/architecture.md)
 - [H(R)/S(R) sparse block format](methods/lcao-openmx/design/sparse-block-format.md)
 - [Parallelization](methods/lcao-openmx/design/parallelization.md)
+- [Data structures for a parallel SCF](methods/lcao-openmx/design/data-structures.md)
+- [A visual guide to the data structures](methods/lcao-openmx/design/data-structures-guide.md)
 - [GPU strategy and porting policy](methods/lcao-openmx/design/gpu-strategy.md)
 - [Core modules]()
   - [PAO basis and real spherical harmonics](methods/lcao-openmx/modules/pao-basis.md)
