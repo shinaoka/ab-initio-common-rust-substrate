@@ -164,18 +164,29 @@ is used in [Real-space grid, Poisson, exchange-correlation](grid-poisson-xc.md).
 A file without the `<project.energies` block is read as old format. DFT\_DATA19 contains no old-format files.
 
 - The old format cannot hold j-dependent data. If `j.dependent.pseudo.potentials` is on, it is an error.
-- `number.vps` is the number of description lines, and each line of `<pseudo.NandL` is "index  principal quantum number  \\( l \\)  cutoff radius".
+- `number.vps` and `local.part.vps` are both required; neither has a default, and `number.vps` = 0 is an error.
+  (The ADPACK input echoed inside the data files mentions a default of 0 for `local.part.vps`; the reader does not apply it.)
+- Each line of `<pseudo.NandL` holds four numbers: "index  principal quantum number  \\( l \\)  cutoff radius".
+  Only \\( l \\) is used (\\( 0 \le l \le 29 \\)); the other three are ignored.
+  The existing reader rejects lines with a fifth column, although the ADPACK inputs echoed in DFT\_DATA19 commonly have five columns.
+  [Design] The reimplementation accepts four or five columns and uses only \\( l \\).
 - `local.part.vps` is the index (0-based) of the line used for the local part. The remaining lines, excluding this one, become
   projectors one by one in that order. If the index is out of range, no line is excluded.
-- Each line of the `<projection.energies` block is "index  \\( \varepsilon\_p \\)", in the same order as the projectors.
+- The `<projection.energies` block has no count line. It holds one "index  \\( \varepsilon\_p \\)" pair per remaining projector,
+  in projector order; the index is ignored, and any extra token is an error. The block is required only if at least one projector remains.
 - The columns of `<Pseudo.Potentials` are the same as in the non-j-dependent case of the new format.
 
 ### 2.7 Interpolation and out-of-range values
 
 - The interpolation scheme is in principle free (as in the [PAO basis](pao-basis.md), bitwise agreement is not required).
-- Outside the maximum grid radius, values are 0.
-- Inside the minimum grid radius, \\( l = 0 \\) projectors are extrapolated from the first interval, and \\( l \ge 1 \\) projectors are 0.
+- Projectors are 0 outside the maximum grid radius. Inside the minimum grid radius, \\( l = 0 \\) projectors are extrapolated
+  from the first interval, and \\( l \ge 1 \\) projectors are 0.
   The minimum radius is about \\( e^{-7.5} \approx 5.5\times 10^{-4} \\) bohr, so the effect on results is negligible.
+- [Convention] The local potential is never interpolated on its own. It enters only through the neutral-atom potential
+  ([neutral atom](neutral-atom.md), §1.3, which specifies its continuation inside the minimum radius), and is 0 beyond \\( r\_c \\).
+- [Convention] The partial-core-correction density is continued inside the minimum radius by an even quadratic \\( a r^2 + b \\) and keeps
+  its last tabulated value beyond the maximum radius. The latter never matters, because the PCC density is only evaluated for
+  \\( r \le r\_c \\) and the VPS grid extends to about 16 bohr.
 
 ## 3. Assembly of matrix elements
 
@@ -478,7 +489,7 @@ Since bitwise agreement is not required, these are treated as defaults that may 
 - Whether to define the projector truncation radius \\( r\_\beta \\) explicitly (unnecessary as long as third atoms are selected by the PAO cutoff, but
   its value if used for efficiency).
 - Treatment when `<scf.SO.factor` of Sec. 5.5 contains species not appearing in the input (the existing implementation reads as many lines as there are species).
-- Treatment of the partial-core-correction density outside the grid (to be decided in the exchange-correlation chapter).
+- The meaning of the fifth column found in `<pseudo.NandL` lines of echoed ADPACK inputs (not read by the existing implementation).
 - Since no actual old-format files are at hand, reading of the old format has only been verified with synthetic files following the description.
 
 ## Tests

@@ -30,7 +30,7 @@ The basis is specified in the `Definition.of.Atomic.Species` block of the input 
 The total number of basis functions is \\( \sum\_l (2l+1) N\_l \\). In the above example, \\( 2 + 2\cdot 3 + 1\cdot 5 = 13 \\).
 
 When orbital optimization is used, one writes "number of original radial functions `>` number after contraction", as in `s3>2` (manual Sections 8.2 and 26).
-`s1>1` without contraction means the same as `s1`. The method and input for orbital optimization are in Section 5 of [Wannier functions, unfolding, and local orbital analysis](wannier-unfolding.md).
+`s1>1` gives the same basis as `s1`, but the two forms belong to different modes: `>` is accepted only when orbital optimization is used (see below). The method and input for orbital optimization are in Section 5 of [Wannier functions, unfolding, and local orbital analysis](wannier-unfolding.md).
 
 ### Interpretation of the string [Convention]
 
@@ -40,6 +40,14 @@ When orbital optimization is used, one writes "number of original radial functio
 - The maximum angular momentum \\( l\_{\max} \\) of a species is the largest \\( l \\) with \\( N\_l > 0 \\).
   \\( N\_l = 0 \\) is allowed for intermediate \\( l \\) (e.g. `s2d1` has no p orbitals).
 - It is an error if \\( l\_{\max} \\) exceeds `PAO.Lmax` of the file, or if \\( N\_l \\) exceeds `PAO.Mul` of the file.
+- The file name is everything before the **first** `-`; a string without `-` is a format error.
+- Letters are lowercase `s p d f g` only. Any other character, including an uppercase letter, is a format error that stops the program.
+- Letters may appear in any order and may repeat; a repeated letter followed by digits replaces the earlier count,
+  and a letter followed by no digits leaves its count unchanged.
+- Without orbital optimization a count has at most three digits, and `>` is a format error.
+- With orbital optimization every nonzero entry must be written as `a>b` with \\( b \le a \\) (primitive and contracted counts);
+  an entry not of this form is a format error.
+  \\( l\_{\max} \\) is then the largest \\( l \\) with a nonzero primitive count.
 
 ### Radial functions selected from the file [Convention]
 
@@ -184,6 +192,9 @@ Outside the range of the table, values are treated as follows.
   the effect of the inner treatment on integrals is negligible.
 - For \\( r\_c < r \le r\_{\mathrm{last}} \\), the table values are 0, so the interpolated values are also nearly 0.
   [Design] The reimplementation may return exactly 0 for \\( r \ge r\_c \\).
+- [Convention] When orbitals are evaluated on the real-space grid, the existing implementation instead continues the table inside
+  \\( r\_{\min} \\) with a low-order polynomial. [Design] The volume involved is negligible, so either treatment is acceptable;
+  the table above is the reference behaviour for tests.
 
 [Design] The interpolation scheme is not prescribed. Since bitwise agreement is not required, any sufficiently smooth interpolation is fine
 (e.g. cubic spline in the variable \\( \ln r \\), or piecewise cubic Hermite interpolation).
@@ -205,7 +216,7 @@ The existing implementation also uses piecewise cubic interpolation.
 | Reading | The grid is equally spaced in \\( \ln r \\), \\( e^{x} = r \\) | \\( 10^{-11} \\) (relative) |
 | Reading | Table values for \\( r > r\_c \\) are 0 | Exact |
 | Invariant | Orthonormality of the first few radial functions of the same \\( l \\) (trapezoidal rule) | \\( 10^{-3} \\) |
-| Out of range | For \\( r < r\_{\min} \\), \\( R(r\_{\min}) \\) for \\( l=0 \\) and 0 for \\( l \ge 1 \\). 0 for \\( r > r\_{\mathrm{last}} \\) | Exact |
+| Out of range (table interpolation) | For \\( r < r\_{\min} \\), \\( R(r\_{\min}) \\) for \\( l=0 \\) and 0 for \\( l \ge 1 \\). 0 for \\( r > r\_{\mathrm{last}} \\) | Exact |
 | Comparison | Compare \\( R\_{l\zeta}(r) \\) at arbitrary \\( r \\) with a fixture | Relative \\( 10^{-6} \\) (allowing for differences in interpolation scheme) |
 
 Check: passing the path of a PAO file to `tools/check_pao_file.py` verifies the grid, the values outside the cutoff, and orthonormality

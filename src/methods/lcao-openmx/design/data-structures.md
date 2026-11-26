@@ -278,8 +278,7 @@ output density. The SCF driver is therefore a sequence of stages with the mixing
 | \\( U\_{\mathrm{core}} + U\_{H0} \\) (screened atom-pair terms) | pair distances, frozen \\( s\_{IJ} \\), \\( Z \\), \\( V\_H^a \\) tables | row owners over the pair graph, once per structure |
 | \\( \Delta E\_{\mathrm{xc}}^{(0)} \\) (atomic-density correction) | grid term on \\( n^a + n^{\mathrm{pcc}} \\); atom-centred quadrature over neighbours | grid owners and row owners, once per structure |
 
-[Open] The [grid](../modules/grid-poisson-xc.md) and [total energy](../modules/energy-force.md) chapters must be checked against each other on
-whether \\( n^{\mathrm{pcc}} \\) enters the atom-centred term of \\( \Delta E\_{\mathrm{xc}}^{(0)} \\) before this term is implemented.
+[Convention] Both terms include \\( n^{\mathrm{pcc}} \\) ([grid](../modules/grid-poisson-xc.md), §4.7; [total energy](../modules/energy-force.md), "Atomic-density correction to exchange-correlation").
 
 ## 9. Testability [Design]
 

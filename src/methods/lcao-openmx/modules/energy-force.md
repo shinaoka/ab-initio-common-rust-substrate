@@ -166,7 +166,7 @@ When `scf.Exc0.correction.flag` (default on) is on, the following \\( \Delta E^{
 
 $$
 \Delta E^{(0)} = -\Delta V\sum\_p \left(n^{a} + n^{\mathrm{pcc}}\right)\epsilon^{\mathrm{CA}}\\!\left(n^{a} + n^{\mathrm{pcc}}\right)\Big\rvert\_{\mathbf r\_p}
-{}+ \sum\_{I}\int\_{\lVert\mathbf x\rVert < r\_{c,I}} d^3x\\; n^{a}\_I(\mathbf x)\\, \epsilon^{\mathrm{CA}}\\!\left(n^{a}(\mathbf R\_I + \mathbf x)\right)
+{}+ \sum\_{I}\int\_{\lVert\mathbf x\rVert < r\_{c,I}} d^3x\\; \hat n\_I(\mathbf x)\\, \epsilon^{\mathrm{CA}}\\!\left(\hat n(\mathbf R\_I + \mathbf x)\right),\qquad \hat n\_I = n^{a}\_I + n^{\mathrm{pcc}}\_I
 $$
 
 - \\( \epsilon^{\mathrm{CA}} \\) is always the spin-unpolarized Ceperley–Alder LDA, regardless of the functional chosen for the calculation
@@ -174,12 +174,14 @@ $$
 - The first term is a sum on the coarse real-space grid, and the second is a fine atom-centered quadrature. Within a sphere centered on atom \\( I \\),
   the radial direction uses 150-point Gauss–Legendre on \\( [0, r\_{c,I}] \\) and the angular direction uses a Lebedev rule
   (number of points `scf.Num.Leb.Grid`, default 590).
-  \\( n^{a}(\mathbf R\_I + \mathbf x) \\) is the sum of \\( n^{a}\_J \\) of neighboring atoms (atoms within the atom-pair range), each \\( n^{a}\_J \\) being 0 outside its own cutoff.
+  \\( \hat n(\mathbf R\_I + \mathbf x) \\) is the sum of \\( \hat n\_J \\) of neighboring atoms (atoms within the atom-pair range), each \\( \hat n\_J \\) being 0 outside its own cutoff.
+  \\( n^{a}\_I \\) is the atomic density of the PAO file renormalized to the valence charge; \\( n^{a} \\) is the unpolarized superposition, not scaled by the initial spin occupations.
 - The intent is to re-evaluate the exchange-correlation energy of the superposition of atomic densities with an accurate atom-centered quadrature rather than on the grid
   (reducing errors due to grid coarseness, in particular errors that vary with the position of atoms relative to the grid).
-- The density of the second term does not include \\( n^{\mathrm{pcc}} \\), while that of the first term does. For atoms with partial core correction,
-  the two terms are not two evaluations of the same quantity, and a difference \\( \int[(n^{a}+n^{\mathrm{pcc}})\epsilon(n^{a}+n^{\mathrm{pcc}}) - n^{a}\epsilon(n^{a})] \\) remains.
-  This is recorded as behavior of the existing implementation. Whether the reimplementation should also match this definition is [Open].
+- The atom-centred term uses \\( \hat n\_I = n^{a}\_I + n^{\mathrm{pcc}}\_I \\) both as the weight and inside \\( \epsilon^{\mathrm{CA}} \\), so it re-evaluates exactly the quantity
+  subtracted on the grid ([grid](grid-poisson-xc.md), §4.7). In the grid term, the spin-\\( \sigma \\) contribution subtracted is
+  \\( (\tfrac12 n^{a} + n^{\mathrm{pcc}}\_\sigma)\\,\epsilon^{\mathrm{CA}}(n^{a} + n^{\mathrm{pcc}}) \\); summed over the two spins (equivalently, twice the per-spin value in the non-polarized case) it is
+  \\( (n^{a} + n^{\mathrm{pcc}})\\,\epsilon^{\mathrm{CA}}(n^{a} + n^{\mathrm{pcc}}) \\) for both non-polarized and collinear calculations, including open-core PCC.
 
 ### Screened interatomic terms: Ucore and UH0 [Public] [Convention]
 
@@ -512,6 +514,5 @@ the tolerances will be re-determined once the grid rules of the [grid](grid-pois
 - Resolved: energy components and forces for noncollinear spin and spin-orbit coupling are treated in [noncollinear](noncollinear-energy-force.md); `Uhub`, `Ucs`, `Uzs`, `Uzo` in [DFT+U](dftu-magnetism.md); and `Uch` in [ESM, core levels](esm-field-corehole.md).
 - Forces of the partial core correction for pseudopotentials with "open core" treatment (where \\( v\_{\mathrm{xc}} \\) of only one spin may be used). For the noncollinear case, Sec. 3.4 of [noncollinear](noncollinear-energy-force.md).
 - Whether the GGA \\( v\_{\mathrm{xc}} \\) is a discretely exact derivative including the transpose of the finite-difference gradient.
-- Whether the reimplementation should also follow the choice of not including the partial-core-correction density in the atom-centered quadrature of the atomic-density correction.
 - Derivatives of matrix elements for neutral-atom combinations that do not use the projector expansion.
 - Format of stress and the lattice-vector gradient in the output file.
