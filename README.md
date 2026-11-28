@@ -56,8 +56,8 @@ Hamiltonian storage and forces. Shared code is extracted only when real duplicat
 | PAW, FLAPW | Scoping notes and prior-art survey (SIRIUS, FLEUR, dftatom, ...) |
 | Rust implementation | sphaira-rs (LCAO); design in [`data-structures`](src/methods/lcao-openmx/design/data-structures.md), repository to be created |
 
-The OpenMX-style method is used with the agreement of OpenMX's principal author; the implementation will carry
-a different name (sphaira-rs) and is not an official successor of OpenMX.
+sphaira-rs is an independent clean-room implementation of an OpenMX-style method. It is not OpenMX and not an
+official successor of OpenMX, and it is not endorsed by the OpenMX developers.
 
 ## Read more
 
